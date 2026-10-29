@@ -1,0 +1,543 @@
+{
+  "schema_version": 1,
+  "name": "development-smoke-v1",
+  "purpose": "Development regression only; not held out and not a headline portfolio experiment. Financial expected values independently computed from cited raw values with Fraction and sqrt; semantic faithfulness is not scored.",
+  "cases": [
+    {
+      "id": "lookup-ifrs-2023-revenue",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2023
+        ],
+        "metrics": [
+          "revenue"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "146767",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "lookup-ifrs-2023-profit_owners",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2023
+        ],
+        "metrics": [
+          "profit_owners"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "24095",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "net-margin-2023",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys IFRS net margin FY2023"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.rows.0.value",
+          "decimal": "16.42",
+          "tolerance": "0.005"
+        }
+      ]
+    },
+    {
+      "id": "lookup-ifrs-2024-revenue",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2024
+        ],
+        "metrics": [
+          "revenue"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "153670",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "lookup-ifrs-2024-profit_owners",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2024
+        ],
+        "metrics": [
+          "profit_owners"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "26233",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "net-margin-2024",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys IFRS net margin FY2024"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.rows.0.value",
+          "decimal": "17.07",
+          "tolerance": "0.005"
+        }
+      ]
+    },
+    {
+      "id": "lookup-ifrs-2025-revenue",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2025
+        ],
+        "metrics": [
+          "revenue"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "162990",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "lookup-ifrs-2025-profit_owners",
+      "category": "lookup",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          2025
+        ],
+        "metrics": [
+          "profit_owners"
+        ],
+        "basis": "IFRS"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.facts.0.value",
+          "decimal": "26713",
+          "tolerance": "0"
+        },
+        {
+          "path": "data.facts.0.source.document_id",
+          "equals": "infosys-ar25"
+        }
+      ]
+    },
+    {
+      "id": "net-margin-2025",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys IFRS net margin FY2025"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.rows.0.value",
+          "decimal": "16.39",
+          "tolerance": "0.005"
+        }
+      ]
+    },
+    {
+      "id": "operating-margin-2024",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys operating margin FY2024"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.rows.0.value",
+          "decimal": "20.66",
+          "tolerance": "0.005"
+        }
+      ]
+    },
+    {
+      "id": "operating-margin-2025",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys operating margin FY2025"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.rows.0.value",
+          "decimal": "21.12",
+          "tolerance": "0.005"
+        }
+      ]
+    },
+    {
+      "id": "margin-change-management",
+      "category": "multi_document",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "How did Infosys operating margin change from FY24 to FY25 and what did management say?"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.changes.0.calculation.value",
+          "decimal": "0.46",
+          "tolerance": "0.005"
+        },
+        {
+          "path": "data.commentary.0.evidence_id",
+          "equals": "ev-infosys-call25-margin"
+        },
+        {
+          "path": "data.validation",
+          "equals": "passed"
+        }
+      ]
+    },
+    {
+      "id": "revenue-cagr",
+      "category": "numeric",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys IFRS revenue CAGR FY23 to FY25"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.changes.0.calculation.value",
+          "decimal": "5.38",
+          "tolerance": "0.005"
+        },
+        {
+          "path": "data.changes.0.calculation.elapsed_years",
+          "equals": 2
+        }
+      ]
+    },
+    {
+      "id": "margin-three-years-partial",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys operating margin FY23 to FY25"
+      },
+      "expected_status": "partial",
+      "checks": [
+        {
+          "path": "data.missing.0.fiscal_year",
+          "equals": 2023
+        }
+      ]
+    },
+    {
+      "id": "comparison-missing-company",
+      "category": "multi_document",
+      "operation": "compare_companies",
+      "arguments": {
+        "metric": "operating_margin",
+        "companies": [
+          "Infosys",
+          "TCS"
+        ],
+        "years": [
+          "FY25"
+        ]
+      },
+      "expected_status": "partial",
+      "checks": [
+        {
+          "path": "data.missing.0.company_id",
+          "equals": "tcs"
+        }
+      ]
+    },
+    {
+      "id": "management-retrieval",
+      "category": "retrieval",
+      "operation": "search_filings",
+      "arguments": {
+        "query": "margin Maximus",
+        "company": "Infosys",
+        "year": "FY25"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.passages.0.evidence_id",
+          "equals": "ev-infosys-call25-margin"
+        }
+      ]
+    },
+    {
+      "id": "wrong-company-retrieval",
+      "category": "abstention",
+      "operation": "search_filings",
+      "arguments": {
+        "query": "margin Maximus",
+        "company": "TCS"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "wrong-year-retrieval",
+      "category": "abstention",
+      "operation": "search_filings",
+      "arguments": {
+        "query": "margin Maximus",
+        "company": "Infosys",
+        "year": "FY24"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "standalone-missing",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys standalone revenue FY25"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "original-report-not-present",
+      "category": "abstention",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          "FY24"
+        ],
+        "metrics": [
+          "revenue"
+        ],
+        "policy": "originally_reported"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "no-inferred-publication",
+      "category": "abstention",
+      "operation": "get_table",
+      "arguments": {
+        "company": "Infosys",
+        "years": [
+          "FY25"
+        ],
+        "metrics": [
+          "revenue"
+        ],
+        "known_on": "2026-10-27"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "no-investment-advice",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Should I buy Infosys?"
+      },
+      "expected_status": "out_of_scope",
+      "checks": []
+    },
+    {
+      "id": "ambiguous-margin",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys margin FY25"
+      },
+      "expected_status": "ambiguous",
+      "checks": []
+    },
+    {
+      "id": "no-inferred-latest",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys revenue over the last three years"
+      },
+      "expected_status": "ambiguous",
+      "checks": []
+    },
+    {
+      "id": "quarterly-not-annual",
+      "category": "abstention",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "Infosys Q4 operating margin FY25"
+      },
+      "expected_status": "out_of_scope",
+      "checks": []
+    },
+    {
+      "id": "rbi-historical-commencement",
+      "category": "regulation",
+      "operation": "search_regulations",
+      "arguments": {
+        "query": "KYC commencement",
+        "authority": "RBI",
+        "as_of": "2025-06-12"
+      },
+      "expected_status": "ok",
+      "checks": [
+        {
+          "path": "data.provisions.0.clause",
+          "equals": "Paragraph 3(ii): commencement"
+        }
+      ]
+    },
+    {
+      "id": "rbi-before-effective",
+      "category": "regulation",
+      "operation": "search_regulations",
+      "arguments": {
+        "query": "KYC commencement",
+        "as_of": "2025-06-11"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "rbi-beyond-verified",
+      "category": "regulation",
+      "operation": "search_regulations",
+      "arguments": {
+        "query": "KYC commencement",
+        "as_of": "2026-10-27"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "rbi-entity-mismatch",
+      "category": "regulation",
+      "operation": "search_regulations",
+      "arguments": {
+        "query": "KYC",
+        "as_of": "2025-06-12",
+        "entity_type": "IT company"
+      },
+      "expected_status": "not_found",
+      "checks": []
+    },
+    {
+      "id": "regulation-date-required",
+      "category": "regulation",
+      "operation": "answer_question",
+      "arguments": {
+        "question": "What are RBI KYC rules?"
+      },
+      "expected_status": "ambiguous",
+      "checks": []
+    },
+    {
+      "id": "wrong-year-calculation",
+      "category": "abstention",
+      "operation": "calculate",
+      "arguments": {
+        "formula": "operating_margin",
+        "fact_ids": [
+          "infosys-indas-2025-operating_profit",
+          "infosys-indas-2024-revenue"
+        ]
+      },
+      "expected_status": "invalid_request",
+      "checks": []
+    },
+    {
+      "id": "wrong-profit-definition",
+      "category": "abstention",
+      "operation": "calculate",
+      "arguments": {
+        "formula": "net_margin",
+        "fact_ids": [
+          "infosys-indas-2025-profit_total",
+          "infosys-indas-2025-revenue"
+        ]
+      },
+      "expected_status": "invalid_request",
+      "checks": []
+    }
+  ]
+}

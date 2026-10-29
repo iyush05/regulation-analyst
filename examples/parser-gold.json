@@ -1,0 +1,4 @@
+[
+  {"pdf_page": 1, "table_id": "p1-t1", "row": 1, "column": 1, "raw_value": "100"},
+  {"pdf_page": 1, "table_id": "p1-t1", "row": 1, "column": 2, "raw_value": "90"}
+]

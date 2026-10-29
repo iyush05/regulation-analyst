@@ -1,0 +1,25 @@
+name: Verify
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps -e .
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+      - run: regulation-analyst demo
+      - run: regulation-analyst evaluate --output artifacts/evaluation.json
+      - run: regulation-analyst --db data/research-matrix.sqlite3 load-corpus
+      - run: regulation-analyst --db data/research-matrix.sqlite3 experiment --output artifacts/fixed-tools-development.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-evaluation
+          path: artifacts/
