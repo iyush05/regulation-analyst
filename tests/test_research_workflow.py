@@ -48,7 +48,7 @@ def test_no_operating_commentary_used_to_explain_net_margin(service):
     [
         ("Should I buy Infosys?", "out_of_scope"),
         ("Infosys Q4 operating margin FY25", "out_of_scope"),
-        ("Infosys EBITDA FY25", "out_of_scope"),
+        ("Infosys EBITDA FY25", "not_found"),
         ("Infosys margin FY25", "ambiguous"),
         ("Infosys revenue for the last three years", "ambiguous"),
         ("Infosys revenue FY26", "not_found"),

@@ -8325,7 +8325,7 @@
       "source_group": "small-corpus-connected-source-group",
       "review_status": "source_crosschecked",
       "reviewer": "coding-assistant; independent review pending",
-      "expected_status": "out_of_scope",
+      "expected_status": "not_found",
       "answerable": false,
       "selection": {
         "scope": "consolidated",
@@ -8347,7 +8347,7 @@
       "source_group": "small-corpus-connected-source-group",
       "review_status": "source_crosschecked",
       "reviewer": "coding-assistant; independent review pending",
-      "expected_status": "out_of_scope",
+      "expected_status": "not_found",
       "answerable": false,
       "selection": {
         "scope": "consolidated",

@@ -10,10 +10,28 @@ from .store import Store, canonical
 
 DEFINITIONS = {
     "revenue": "revenue.operations.v1",
+    "other_income": "income.other.v1",
+    "total_income": "income.total.v1",
     "operating_profit": "operating_profit.excluding_other_income.v1",
+    "finance_costs": "expense.finance_costs.v1",
+    "depreciation_amortisation": "expense.depreciation_amortisation_impairment.v1",
+    "profit_before_tax": "profit.before_tax.v1",
+    "tax_expense": "expense.tax_total.v1",
     "profit_owners": "profit.attributable_to_owners.v1",
     "profit_total": "profit.including_noncontrolling_interests.v1",
+    "eps_basic": "eps.basic.v1",
+    "eps_diluted": "eps.diluted.v1",
+    "operating_cash_flow": "cash_flow.net_from_operating_activities.v1",
+    # Stored as the positive magnitude of purchases of PPE and intangible assets.
+    "capex": "capex.purchase_ppe_intangibles_outflow.v1",
     "equity_owners": "equity.attributable_to_owners.v1",
+    "non_controlling_interest": "equity.non_controlling_interests.v1",
+    "total_assets": "assets.total.v1",
+    "current_assets": "assets.current_total.v1",
+    "current_liabilities": "liabilities.current_total.v1",
+    "borrowings_current": "borrowings.current.v1",
+    "borrowings_noncurrent": "borrowings.noncurrent.v1",
+    "cash_and_equivalents": "cash.and_cash_equivalents.v1",
 }
 FORMULAS = {
     "operating_margin": {
@@ -51,7 +69,125 @@ FORMULAS = {
         "formula": "profit_owners / ((opening_equity + closing_equity) / 2) * 100",
         "unit": "percent",
     },
+    "roe_change_pp": {
+        "inputs": [
+            "earlier_profit",
+            "earlier_opening_equity",
+            "earlier_closing_equity",
+            "later_profit",
+            "later_opening_equity",
+            "later_closing_equity",
+        ],
+        "formula": "later_roe - earlier_roe (each profit_owners / average owners' equity) * 100",
+        "unit": "percentage_points",
+    },
 }
+# Same-year measures over reported line items. Input names are the required metrics, in order.
+# Operating profit here excludes other income and is derived identically for every company;
+# exceptional items remain inside profit before tax.
+SAME_YEAR = {
+    "operating_profit_derived": (
+        ["profit_before_tax", "finance_costs", "other_income"],
+        "profit_before_tax + finance_costs - other_income",
+        "INR_crore",
+        lambda v: v["profit_before_tax"] + v["finance_costs"] - v["other_income"],
+        [],
+    ),
+    "operating_margin_derived": (
+        ["profit_before_tax", "finance_costs", "other_income", "revenue"],
+        "(profit_before_tax + finance_costs - other_income) / revenue * 100",
+        "percent",
+        lambda v: (
+            (v["profit_before_tax"] + v["finance_costs"] - v["other_income"]) / v["revenue"] * 100
+        ),
+        ["revenue"],
+    ),
+    "ebitda": (
+        ["profit_before_tax", "finance_costs", "other_income", "depreciation_amortisation"],
+        "profit_before_tax + finance_costs - other_income + depreciation_amortisation",
+        "INR_crore",
+        lambda v: (
+            v["profit_before_tax"]
+            + v["finance_costs"]
+            - v["other_income"]
+            + v["depreciation_amortisation"]
+        ),
+        [],
+    ),
+    "ebitda_margin": (
+        [
+            "profit_before_tax",
+            "finance_costs",
+            "other_income",
+            "depreciation_amortisation",
+            "revenue",
+        ],
+        "(profit_before_tax + finance_costs - other_income + depreciation_amortisation)"
+        " / revenue * 100",
+        "percent",
+        lambda v: (
+            (
+                v["profit_before_tax"]
+                + v["finance_costs"]
+                - v["other_income"]
+                + v["depreciation_amortisation"]
+            )
+            / v["revenue"]
+            * 100
+        ),
+        ["revenue"],
+    ),
+    "debt_to_equity": (
+        ["borrowings_current", "borrowings_noncurrent", "equity_owners"],
+        "(borrowings_current + borrowings_noncurrent) / equity_owners",
+        "times",
+        lambda v: (v["borrowings_current"] + v["borrowings_noncurrent"]) / v["equity_owners"],
+        ["equity_owners"],
+    ),
+    "roce": (
+        ["profit_before_tax", "finance_costs", "total_assets", "current_liabilities"],
+        "(profit_before_tax + finance_costs) / (total_assets - current_liabilities) * 100",
+        "percent",
+        lambda v: (
+            (v["profit_before_tax"] + v["finance_costs"])
+            / (v["total_assets"] - v["current_liabilities"])
+            * 100
+        ),
+        [],
+    ),
+    "interest_coverage": (
+        ["profit_before_tax", "finance_costs"],
+        "(profit_before_tax + finance_costs) / finance_costs",
+        "times",
+        lambda v: (v["profit_before_tax"] + v["finance_costs"]) / v["finance_costs"],
+        ["finance_costs"],
+    ),
+    "free_cash_flow": (
+        ["operating_cash_flow", "capex"],
+        "operating_cash_flow - capex",
+        "INR_crore",
+        lambda v: v["operating_cash_flow"] - v["capex"],
+        [],
+    ),
+    "current_ratio": (
+        ["current_assets", "current_liabilities"],
+        "current_assets / current_liabilities",
+        "times",
+        lambda v: v["current_assets"] / v["current_liabilities"],
+        ["current_liabilities"],
+    ),
+}
+for _name, (_inputs, _formula, _unit, _, _) in SAME_YEAR.items():
+    FORMULAS[_name] = {"inputs": _inputs, "formula": _formula, "unit": _unit}
+# Single-year measures that metric_for_year can answer: formula -> (input metrics, year offsets).
+DERIVED_METRICS = {
+    "operating_margin": (["operating_profit", "revenue"], [0, 0]),
+    "net_margin": (["profit_owners", "revenue"], [0, 0]),
+    "roe": (["profit_owners", "equity_owners", "equity_owners"], [0, -1, 0]),
+    **{name: (spec[0], [0] * len(spec[0])) for name, spec in SAME_YEAR.items()},
+}
+# Reported operating profit definitions differ between companies; this is the uniform fallback.
+FALLBACKS = {"operating_margin": "operating_margin_derived"}
 
 
 def _require(condition, message):
@@ -110,6 +246,28 @@ def calculate(store: Store, formula: str, fact_ids: list[str]) -> dict:
             "Fiscal year ends must align",
         )
 
+    def roe(triple, amounts):
+        _require(
+            [f.metric for f in triple] == ["profit_owners", "equity_owners", "equity_owners"],
+            "ROE requires owners' profit and opening/closing owners' equity",
+        )
+        _require(
+            triple[1].period_end == triple[0].period_start - timedelta(days=1)
+            and triple[2].period_end == triple[0].period_end,
+            "ROE equity dates must bracket the profit period",
+        )
+        average = (amounts[1] + amounts[2]) / 2
+        _positive(average, "Average equity")
+        return amounts[0] / average * 100
+
+    def same_year(items):
+        flows = {(f.period_start, f.period_end) for f in items if f.period_kind == "annual"}
+        ends = {f.period_end for f in items}
+        _require(
+            len(flows) <= 1 and len(ends) == 1,
+            "Inputs must cover the same fiscal year; balances are taken at its end",
+        )
+
     with localcontext() as ctx:
         ctx.prec = PRECISION
         try:
@@ -138,20 +296,28 @@ def calculate(store: Store, formula: str, fact_ids: list[str]) -> dict:
                 old = margin_pair(facts[0], facts[1], values[0], values[1])
                 new = margin_pair(facts[2], facts[3], values[2], values[3])
                 value = (new - old) * (10000 if formula.endswith("bps") else 100)
+            elif formula == "roe":
+                value = roe(facts, values)
+            elif formula == "roe_change_pp":
+                ordered_periods(facts[0], facts[3])
+                value = roe(facts[3:], values[3:]) - roe(facts[:3], values[:3])
             else:
+                inputs, _, _, compute, positive = SAME_YEAR[formula]
                 _require(
-                    [f.metric for f in facts]
-                    == ["profit_owners", "equity_owners", "equity_owners"],
-                    "ROE requires owners' profit and opening/closing owners' equity",
+                    [f.metric for f in facts] == inputs,
+                    f"{formula} requires {', '.join(inputs)} in that order",
                 )
-                _require(
-                    facts[1].period_end == facts[0].period_start - timedelta(days=1)
-                    and facts[2].period_end == facts[0].period_end,
-                    "ROE equity dates must bracket the profit period",
-                )
-                average = (values[1] + values[2]) / 2
-                _positive(average, "Average equity")
-                value = values[0] / average * 100
+                same_year(facts)
+                named = dict(zip(inputs, values, strict=True))
+                for label in positive:
+                    _positive(named[label], label.replace("_", " ").capitalize())
+                if formula == "free_cash_flow":
+                    _require(named["capex"] >= 0, "Capex is stored as a non-negative outflow")
+                if formula == "roce":
+                    _positive(
+                        named["total_assets"] - named["current_liabilities"], "Capital employed"
+                    )
+                value = compute(named)
         except (InvalidOperation, OverflowError) as exc:
             raise ResearchError(
                 "undefined", "Calculation exceeds supported decimal precision"

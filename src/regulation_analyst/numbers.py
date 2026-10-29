@@ -12,6 +12,8 @@ SCALES = {
     "INR_million": Decimal("0.1"),
     "INR": Decimal("0.0000001"),
 }
+# Per-share amounts keep their own dimension and are never scaled into crore.
+UNSCALED = {"INR_per_share"}
 _NUMBER = re.compile(r"[+-]?(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d+)?")
 
 
@@ -33,11 +35,17 @@ def parse_number(raw: str) -> Decimal:
 
 
 def normalize(raw: str, unit: str) -> Decimal:
+    if unit in UNSCALED:
+        return parse_number(raw)
     if unit not in SCALES:
         raise ResearchError("invalid_request", f"Unsupported monetary unit: {unit}")
     with localcontext() as ctx:
         ctx.prec = PRECISION
         return parse_number(raw) * SCALES[unit]
+
+
+def normalized_unit(unit: str) -> str:
+    return unit if unit in UNSCALED else "INR_crore"
 
 
 def decimal_text(value: Decimal) -> str:

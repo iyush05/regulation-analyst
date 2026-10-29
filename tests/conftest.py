@@ -4,7 +4,7 @@ from importlib.resources import files
 import pytest
 
 from regulation_analyst.metrics import DEFINITIONS
-from regulation_analyst.models import Bundle, Company, Document, Evidence, Fact
+from regulation_analyst.models import REPORTED_METRICS, Bundle, Company, Document, Evidence, Fact
 from regulation_analyst.service import ResearchService
 from regulation_analyst.store import Store
 
@@ -72,7 +72,7 @@ def synthetic_bundle():
                     reviewed_on=date(2026, 10, 27),
                 )
             )
-            instant = metric == "equity_owners"
+            instant = REPORTED_METRICS[metric][0] == "instant"
             defaults = dict(
                 id=fid,
                 company_id=company,

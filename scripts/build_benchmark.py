@@ -186,8 +186,8 @@ for metric in ("revenue", "profit_owners", "profit_total", "equity_owners", "net
             )
 
 challenges = [
-    ("Infosys EBITDA margin FY25", "out_of_scope"),
-    ("Infosys EPS FY25", "out_of_scope"),
+    ("Infosys EBITDA margin FY25", "not_found"),
+    ("Infosys EPS FY25", "not_found"),
     ("Infosys quarterly revenue FY25", "out_of_scope"),
     ("Infosys revenue forecast FY26", "out_of_scope"),
     ("Should I buy Infosys?", "out_of_scope"),

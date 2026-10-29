@@ -19,7 +19,7 @@ from .models import (
     Passage,
     Provision,
 )
-from .numbers import decimal_text, normalize
+from .numbers import decimal_text, normalize, normalized_unit
 
 MODELS = {
     "companies": Company,
@@ -412,7 +412,7 @@ class Store:
         return {
             **fact.model_dump(mode="json"),
             "value": decimal_text(normalize(fact.raw_value, fact.unit)),
-            "normalized_unit": "INR_crore",
+            "normalized_unit": normalized_unit(fact.unit),
             "source": self.source(fact.evidence_id),
         }
 

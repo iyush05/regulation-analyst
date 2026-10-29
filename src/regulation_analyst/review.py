@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .errors import ResearchError
 from .metrics import DEFINITIONS
-from .models import Basis, Bundle, Company, Document, Scope
+from .models import REPORTED_METRICS, Basis, Bundle, Company, Document, Scope
 from .numbers import normalize
 from .store import canonical
 
@@ -31,6 +31,8 @@ class RowMapping(BaseModel):
     metric: str
     label: str = Field(min_length=1)
     definition: str | None = None
+    # EPS rows sit in monetary tables but are stated per share.
+    unit: Literal["INR_per_share"] | None = None
 
 
 class TableMapping(BaseModel):
@@ -233,7 +235,7 @@ def build_candidates(extraction_file: str | Path, mapping: MappingPlan) -> dict:
                         "reviewed_on": None,
                     }
                 )
-                instant = row_map.metric == "equity_owners"
+                instant = REPORTED_METRICS.get(row_map.metric, ("annual",))[0] == "instant"
                 facts.append(
                     {
                         "id": fid,
@@ -247,7 +249,7 @@ def build_candidates(extraction_file: str | Path, mapping: MappingPlan) -> dict:
                         "scope": table_map.scope,
                         "basis": table_map.basis,
                         "raw_value": raw,
-                        "unit": table_map.unit,
+                        "unit": row_map.unit or table_map.unit,
                         "evidence_id": eid,
                         "revision": column.revision,
                     }

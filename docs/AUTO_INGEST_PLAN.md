@@ -85,7 +85,15 @@ Implemented: trust labels and validation on `Evidence`; reviewed facts outrank a
    accept `ingest <company> --local-pdf FY25=/path.pdf`. Do not add bot-detection evasion.
 5. **CLI:** `regulation-analyst ingest "Wipro" --years FY23 FY25 [--local-pdf ...] [--dry-run]`.
 
-## 4. Phase 3: Expanded metrics and formulas (≈3 days)
+## 4. Phase 3: Expanded metrics and formulas (≈3 days) — done (built as Phase 2)
+
+Implemented: 22 reported metrics (`models.REPORTED_METRICS`) with versioned definitions;
+`INR_per_share`; nine same-year derived formulas plus `roe_change_pp`; `operating_margin`
+falls back to `operating_margin_derived`, and comparisons recompute every company on one
+definition when reported definitions differ; `ask` routes all new metrics, including growth
+for any reported metric and ROE change. Change and CAGR of derived measures other than
+margins and ROE remain unsupported. Benchmark cases research-145/146 (EBITDA margin, EPS)
+are relabelled from `out_of_scope` to `not_found`. Tests: `tests/test_expanded_metrics.py`.
 
 **Extracted (reported) metrics**, each with a versioned definition in `metrics.DEFINITIONS`:
 

@@ -45,7 +45,7 @@ class CompareArgs(Selection):
 
 class CalculateArgs(Arguments):
     formula: str
-    fact_ids: list[str] = Field(min_length=1, max_length=4)
+    fact_ids: list[str] = Field(min_length=1, max_length=6)
 
 
 class FilingArgs(Arguments):
@@ -237,7 +237,8 @@ class Ledger:
                     line = (
                         f"{item['company_id']} · FY{item['fiscal_year']} · "
                         f"{item['scope']} · {item['basis']} · "
-                        f"{item['metric']}: {item['value']} INR crore."
+                        f"{item['metric']}: {item['value']} "
+                        f"{item['normalized_unit'].replace('_', ' ')}."
                     )
                     if item["source"]["trust"] != "reviewed":
                         line += f" Trust: {item['source']['trust']}."

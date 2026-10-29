@@ -21,6 +21,33 @@ ReviewMethod = Literal[
     "llm_resolved",
 ]
 REVIEWED_METHODS = ("source_text_crosscheck", "visual_review", "human_review")
+# Reported line items: (period kind, unit kind). Derived measures live in metrics.FORMULAS.
+REPORTED_METRICS = {
+    "revenue": ("annual", "monetary"),
+    "other_income": ("annual", "monetary"),
+    "total_income": ("annual", "monetary"),
+    "operating_profit": ("annual", "monetary"),
+    "finance_costs": ("annual", "monetary"),
+    "depreciation_amortisation": ("annual", "monetary"),
+    "profit_before_tax": ("annual", "monetary"),
+    "tax_expense": ("annual", "monetary"),
+    "profit_total": ("annual", "monetary"),
+    "profit_owners": ("annual", "monetary"),
+    "eps_basic": ("annual", "per_share"),
+    "eps_diluted": ("annual", "per_share"),
+    "operating_cash_flow": ("annual", "monetary"),
+    "capex": ("annual", "monetary"),
+    "equity_owners": ("instant", "monetary"),
+    "non_controlling_interest": ("instant", "monetary"),
+    "total_assets": ("instant", "monetary"),
+    "current_assets": ("instant", "monetary"),
+    "current_liabilities": ("instant", "monetary"),
+    "borrowings_current": ("instant", "monetary"),
+    "borrowings_noncurrent": ("instant", "monetary"),
+    "cash_and_equivalents": ("instant", "monetary"),
+}
+Metric = Literal[tuple(REPORTED_METRICS)]
+Unit = Literal["INR_crore", "INR_lakh", "INR_million", "INR", "INR_per_share"]
 Status = Literal[
     "ok", "partial", "not_found", "ambiguous", "invalid_request", "undefined", "out_of_scope"
 ]
@@ -115,7 +142,7 @@ class Evidence(Record):
 
 class Fact(Record):
     company_id: str
-    metric: Literal["revenue", "operating_profit", "profit_owners", "profit_total", "equity_owners"]
+    metric: Metric
     definition: str = Field(min_length=1)
     fiscal_year: int = Field(ge=1900, le=2200)
     period_start: date | None
@@ -124,7 +151,7 @@ class Fact(Record):
     scope: Scope = "consolidated"
     basis: Basis
     raw_value: str
-    unit: Literal["INR_crore", "INR_lakh", "INR_million", "INR"]
+    unit: Unit
     evidence_id: str
     revision: Literal["reported", "comparative", "restated"] = "reported"
     supersedes: str | None = None
@@ -147,8 +174,11 @@ class Fact(Record):
                 raise ValueError("Annual facts require a complete 365/366-day reporting period")
         elif self.period_start is not None:
             raise ValueError("Point-in-time facts must not have period_start")
-        if (self.metric == "equity_owners") != (self.period_kind == "instant"):
-            raise ValueError("Equity is an instant fact; income measures are annual flows")
+        kind, unit_kind = REPORTED_METRICS[self.metric]
+        if (kind == "instant") != (self.period_kind == "instant"):
+            raise ValueError("Balance-sheet items are instant facts; income measures are flows")
+        if (unit_kind == "per_share") != (self.unit == "INR_per_share"):
+            raise ValueError("Per-share metrics, and only they, use INR_per_share")
         if self.supersedes == self.id:
             raise ValueError("A fact cannot supersede itself")
         return self

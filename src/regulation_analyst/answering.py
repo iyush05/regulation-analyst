@@ -4,7 +4,8 @@ import re
 from decimal import Decimal
 
 from .errors import ResearchError
-from .metrics import calculate
+from .metrics import DERIVED_METRICS, calculate
+from .models import REPORTED_METRICS
 from .numbers import display
 
 ALIASES = {
@@ -16,7 +17,32 @@ ALIASES = {
     "profit_total": ["total profit", "profit including non-controlling interests"],
     "revenue": ["revenue", "revenues", "sales"],
     "equity_owners": ["equity attributable to owners"],
+    "other_income": ["other income"],
+    "total_income": ["total income"],
+    "finance_costs": ["finance costs", "finance cost", "interest expense"],
+    "depreciation_amortisation": ["depreciation", "depreciation and amortisation"],
+    "profit_before_tax": ["profit before tax", "pbt"],
+    "tax_expense": ["tax expense"],
+    "eps_basic": ["eps", "basic eps", "earnings per share"],
+    "eps_diluted": ["diluted eps", "diluted earnings per share"],
+    "operating_cash_flow": ["operating cash flow", "cash flow from operations"],
+    "capex": ["capex", "capital expenditure"],
+    "non_controlling_interest": ["non-controlling interest", "minority interest"],
+    "total_assets": ["total assets"],
+    "current_assets": ["current assets"],
+    "current_liabilities": ["current liabilities"],
+    "borrowings_current": ["current borrowings", "short-term borrowings"],
+    "borrowings_noncurrent": ["non-current borrowings", "long-term borrowings"],
+    "cash_and_equivalents": ["cash and cash equivalents"],
+    "ebitda": ["ebitda"],
+    "ebitda_margin": ["ebitda margin", "ebitda margins"],
+    "debt_to_equity": ["debt to equity", "debt-to-equity", "debt equity ratio"],
+    "roce": ["roce", "return on capital employed"],
+    "interest_coverage": ["interest coverage", "interest coverage ratio"],
+    "free_cash_flow": ["free cash flow", "fcf"],
+    "current_ratio": ["current ratio"],
 }
+UNIT_SUFFIX = {"percent": "%", "times": "x", "INR_per_share": " INR per share"}
 
 
 def contains(text: str, phrase: str) -> bool:
@@ -125,7 +151,7 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
                 }
             }
         )
-    if re.search(r"\b(?:q[1-4]|quarterly|quarter|ttm|forecast|ebitda|eps)\b", text):
+    if re.search(r"\b(?:q[1-4]|quarterly|quarter|ttm|forecast)\b", text):
         raise ResearchError(
             "out_of_scope",
             "The reference workflow currently covers annual historical metrics in list_metrics",
@@ -171,8 +197,10 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
             "tools support broader research",
         )
     metric = longest[0]
-    if contains(text, "cagr") and metric in ("operating_margin", "net_margin", "roe"):
-        raise ResearchError("out_of_scope", "CAGR of a ratio is not a supported metric definition")
+    if contains(text, "cagr") and metric in DERIVED_METRICS:
+        raise ResearchError(
+            "out_of_scope", "CAGR of a ratio or derived measure is not a supported definition"
+        )
     if known_on:
         from datetime import date
 
@@ -180,26 +208,18 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     filters = dict(scope=scope, basis=basis, policy=policy, known_on=known_on, trust=trust)
     rows, missing, traces = [], [], []
     for year in years:
-        for company in companies:
-            try:
-                rows.append(service.metric_for_year(company.id, metric, year, **filters))
-                traces.append(
-                    {
-                        "operation": "get_table",
-                        "company_id": company.id,
-                        "year": year,
-                        "metric": metric,
-                    }
-                )
-            except ResearchError as exc:
-                missing.append(
-                    {
-                        "company_id": company.id,
-                        "fiscal_year": year,
-                        "status": exc.status,
-                        "reason": str(exc),
-                    }
-                )
+        found, absent = service.aligned_rows([c.id for c in companies], metric, year, **filters)
+        rows.extend(found)
+        missing.extend(absent)
+        traces.extend(
+            {
+                "operation": "get_table",
+                "company_id": r["company_id"],
+                "year": year,
+                "metric": metric,
+            }
+            for r in found
+        )
     if not rows:
         status = "ambiguous" if any(m["status"] == "ambiguous" for m in missing) else "not_found"
         return service.result(
@@ -229,23 +249,26 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
             ]
             if not all(endpoints):
                 continue
-            if metric in ("operating_margin", "net_margin"):
-                formula = "margin_change_pp"
-                ids = [f["id"] for row in endpoints for f in row["facts"]]
-            elif metric in (
-                "revenue",
-                "operating_profit",
-                "profit_owners",
-                "profit_total",
-                "equity_owners",
+            ids = [f["id"] for row in endpoints for f in row["facts"]]
+            definitions = {row["definition"] for row in endpoints}
+            if len(definitions) > 1:
+                missing.append(
+                    {"reason": f"{company.name} {metric} definitions differ between endpoints"}
+                )
+                continue
+            if metric in ("operating_margin", "net_margin") and not any(
+                d.startswith("operating_margin_derived") for d in definitions
             ):
+                formula = "margin_change_pp"
+            elif metric == "roe":
+                formula = "roe_change_pp"
+            elif metric in REPORTED_METRICS:
                 formula = "cagr" if contains(text, "cagr") else "growth_percent"
-                ids = [row["facts"][0]["id"] for row in endpoints]
             else:
                 missing.append(
                     {
-                        "reason": "ROE change calculation is not implemented; "
-                        "individual ROE values are provided"
+                        "reason": f"Change in {metric.replace('_', ' ')} is not implemented; "
+                        "individual values are provided"
                     }
                 )
                 continue
@@ -303,7 +326,7 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     ]
     for row in rows:
         value = display(Decimal(row["value"]))
-        value += "%" if row["unit"] == "percent" else " crore INR"
+        value += UNIT_SUFFIX.get(row["unit"], " crore INR")
         cites = list(dict.fromkeys(f["source"]["citation"] for f in row["facts"]))
         lines.append(
             f"| {row['company_id']} | FY{row['fiscal_year']} | {value} | {'; '.join(cites)} |"

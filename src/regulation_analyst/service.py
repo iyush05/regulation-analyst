@@ -3,8 +3,8 @@
 from datetime import date
 
 from .errors import ResearchError
-from .metrics import FORMULAS, calculate
-from .models import Result, year_number
+from .metrics import DEFINITIONS, DERIVED_METRICS, FALLBACKS, FORMULAS, calculate
+from .models import REPORTED_METRICS, Result, year_number
 from .store import Store
 
 
@@ -68,13 +68,15 @@ class ResearchService:
             "ok",
             "Versioned calculation registry",
             formulas=FORMULAS,
-            reported_metrics=[
-                "revenue",
-                "operating_profit",
-                "profit_owners",
-                "profit_total",
-                "equity_owners",
-            ],
+            reported_metrics={
+                metric: {"period": kind, "unit": unit, "definition": DEFINITIONS[metric]}
+                for metric, (kind, unit) in REPORTED_METRICS.items()
+            },
+            derived_metrics={
+                name: {"inputs": inputs, "year_offsets": offsets}
+                for name, (inputs, offsets) in DERIVED_METRICS.items()
+            },
+            fallbacks=FALLBACKS,
         )
 
     def get_table(
@@ -240,7 +242,9 @@ class ResearchService:
         policy="latest_available",
         known_on=None,
         trust="allow_automated",
+        variant: str | None = None,
     ) -> dict:
+        """One annual value; `variant` forces an alternative formula such as a fallback."""
         self.validate_selection(scope, basis, policy, trust)
         company_id = self.store.resolve_company(company).id
         filters = dict(
@@ -250,23 +254,38 @@ class ResearchService:
             known_on=date.fromisoformat(known_on) if known_on else None,
             trust=trust,
         )
-        needed = {
-            "operating_margin": ["operating_profit", "revenue"],
-            "net_margin": ["profit_owners", "revenue"],
-            "roe": ["profit_owners", "equity_owners", "equity_owners"],
-        }.get(metric)
-        if needed:
-            years = [year, year - 1, year] if metric == "roe" else [year] * len(needed)
-            facts = [
-                self.store.select_fact(company_id, m, y, **filters)
-                for m, y in zip(needed, years, strict=True)
-            ]
-            calculation = calculate(self.store, metric, [f.id for f in facts])
+        formula = variant or metric
+        if variant and FALLBACKS.get(metric) != variant:
+            raise ResearchError("invalid_request", f"{variant} is not an alternative for {metric}")
+        if formula in DERIVED_METRICS:
+            inputs, offsets = DERIVED_METRICS[formula]
+            try:
+                facts = [
+                    self.store.select_fact(company_id, m, year + offset, **filters)
+                    for m, offset in zip(inputs, offsets, strict=True)
+                ]
+            except ResearchError as exc:
+                if variant or metric not in FALLBACKS or exc.status != "not_found":
+                    raise
+                try:
+                    return self.metric_for_year(
+                        company_id,
+                        metric,
+                        year,
+                        **(filters | {"known_on": known_on}),
+                        variant=FALLBACKS[metric],
+                    )
+                except ResearchError:
+                    raise exc from None
+            calculation = calculate(self.store, formula, [f.id for f in facts])
             value, unit = calculation["value"], calculation["unit"]
-        else:
+        elif metric in REPORTED_METRICS:
             facts = [self.store.select_fact(company_id, metric, year, **filters)]
             calculation = None
-            value, unit = self.store.fact_data(facts[0])["value"], "INR_crore"
+            data = self.store.fact_data(facts[0])
+            value, unit = data["value"], data["normalized_unit"]
+        else:
+            raise ResearchError("invalid_request", f"Unknown metric {metric}; use list_metrics")
         return {
             "company_id": company_id,
             "metric": metric,
@@ -279,6 +298,44 @@ class ResearchService:
             "facts": [self.store.fact_data(f) for f in facts],
             "calculation": calculation,
         }
+
+    def aligned_rows(self, company_ids: list[str], metric: str, year: int, **filters):
+        """Rows for several companies in one year on a single definition, or an error.
+
+        When reported definitions differ (for example operating profit), every company is
+        recomputed with the uniform fallback formula; mixed definitions are never compared.
+        """
+
+        def collect(variant=None):
+            rows, missing = [], []
+            for company in company_ids:
+                try:
+                    rows.append(
+                        self.metric_for_year(company, metric, year, **filters, variant=variant)
+                    )
+                except ResearchError as exc:
+                    missing.append(
+                        {
+                            "company_id": company,
+                            "fiscal_year": year,
+                            "status": exc.status,
+                            "reason": str(exc),
+                        }
+                    )
+            return rows, missing
+
+        def aligned(rows):
+            keys = {(r["period_start"], r["period_end"], r["unit"], r["definition"]) for r in rows}
+            return len(keys) <= 1
+
+        rows, missing = collect()
+        if aligned(rows):
+            return rows, missing
+        if metric in FALLBACKS:
+            rows, missing = collect(FALLBACKS[metric])
+            if aligned(rows):
+                return rows, missing
+        raise ResearchError("ambiguous", "Comparison periods or definitions do not align")
 
     def compare_companies(
         self,
@@ -300,42 +357,11 @@ class ResearchService:
         if len(set(ids)) != len(ids):
             raise ResearchError("invalid_request", "Comparison companies must be distinct")
         rows, missing = [], []
+        filters = dict(scope=scope, basis=basis, policy=policy, known_on=known_on, trust=trust)
         for year in dict.fromkeys(year_number(y) for y in years):
-            period_rows = []
-            for company in ids:
-                try:
-                    period_rows.append(
-                        self.metric_for_year(
-                            company,
-                            metric,
-                            year,
-                            scope=scope,
-                            basis=basis,
-                            policy=policy,
-                            known_on=known_on,
-                            trust=trust,
-                        )
-                    )
-                except ResearchError as exc:
-                    missing.append(
-                        {
-                            "company_id": company,
-                            "fiscal_year": year,
-                            "status": exc.status,
-                            "reason": str(exc),
-                        }
-                    )
-            if (
-                len(
-                    {
-                        (r["period_start"], r["period_end"], r["unit"], r["definition"])
-                        for r in period_rows
-                    }
-                )
-                > 1
-            ):
-                raise ResearchError("ambiguous", "Comparison periods or definitions do not align")
+            period_rows, period_missing = self.aligned_rows(ids, metric, year, **filters)
             rows.extend(period_rows)
+            missing.extend(period_missing)
         return self.result(
             "partial" if rows and missing else "ok" if rows else "not_found",
             "Aligned financial comparison; missing companies are not substituted",
