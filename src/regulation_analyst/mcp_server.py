@@ -6,7 +6,7 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from .models import Basis, Policy, Result, Scope
+from .models import Basis, Policy, Result, Scope, Trust
 from .service import ResearchService
 from .store import Store
 
@@ -16,7 +16,8 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
     server = FastMCP(
         "Regulation Analyst",
         instructions=(
-            "Research only the reviewed corpus. First inspect list_companies and list_metrics. "
+            "Research only the imported corpus. First inspect list_companies and list_metrics. "
+            "Each source states its trust level; disclose automated or LLM-resolved values. "
             "Use get_table for numbers and calculate for arithmetic. Never mix companies, years, "
             "scope, or accounting basis. Cite evidence IDs and source URLs. Regulatory research "
             "requires an as_of date and applicability checks. "
@@ -49,6 +50,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
         basis: Basis = "Ind AS",
         policy: Policy = "latest_available",
         known_on: str | None = None,
+        trust: Trust = "allow_automated",
     ) -> Result:
         """Fetch reviewed annual financial facts with cell-level citations; years like FY25."""
         return service.call(
@@ -60,6 +62,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
             basis=basis,
             policy=policy,
             known_on=known_on,
+            trust=trust,
         )
 
     @server.tool(annotations=annotations)
@@ -96,6 +99,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
         basis: Basis = "Ind AS",
         policy: Policy = "latest_available",
         known_on: str | None = None,
+        trust: Trust = "allow_automated",
     ) -> Result:
         """Compare compatible annual metrics. Missing companies remain explicit gaps."""
         return service.call(
@@ -107,6 +111,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
             basis=basis,
             policy=policy,
             known_on=known_on,
+            trust=trust,
         )
 
     @server.tool(annotations=annotations)
@@ -141,6 +146,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
         basis: Basis = "Ind AS",
         policy: Policy = "latest_available",
         known_on: str | None = None,
+        trust: Trust = "allow_automated",
     ) -> Result:
         """Run the bounded reference workflow and return a cited answer with calculation lineage."""
         return service.call(
@@ -150,6 +156,7 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
             basis=basis,
             policy=policy,
             known_on=known_on,
+            trust=trust,
         )
 
     @server.resource("research://coverage")

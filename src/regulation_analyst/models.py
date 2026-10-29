@@ -12,6 +12,15 @@ from .numbers import parse_number
 Scope = Literal["consolidated", "standalone"]
 Basis = Literal["Ind AS", "IFRS"]
 Policy = Literal["latest_available", "originally_reported"]
+Trust = Literal["reviewed_only", "allow_automated"]
+ReviewMethod = Literal[
+    "source_text_crosscheck",
+    "visual_review",
+    "human_review",
+    "automated_extraction",
+    "llm_resolved",
+]
+REVIEWED_METHODS = ("source_text_crosscheck", "visual_review", "human_review")
 Status = Literal[
     "ok", "partial", "not_found", "ambiguous", "invalid_request", "undefined", "out_of_scope"
 ]
@@ -70,9 +79,12 @@ class Evidence(Record):
     column: str | None = None
     bbox: tuple[float, float, float, float] | None = None
     excerpt: str = ""
-    review_method: Literal["source_text_crosscheck", "visual_review", "human_review"]
+    review_method: ReviewMethod
     reviewer: str = Field(min_length=1)
     reviewed_on: date
+    # Validation gates passed before an automated import; empty for human-reviewed evidence.
+    checks: list[str] = Field(default_factory=list)
+    resolution_note: str = ""
 
     @model_validator(mode="after")
     def locator(self):
@@ -81,6 +93,24 @@ class Evidence(Record):
         if self.bbox and (self.bbox[0] >= self.bbox[2] or self.bbox[1] >= self.bbox[3]):
             raise ValueError("Invalid source bounding box")
         return self
+
+    @model_validator(mode="after")
+    def trust_record(self):
+        if self.review_method in REVIEWED_METHODS:
+            if self.resolution_note:
+                raise ValueError("Only LLM-resolved evidence carries a resolution note")
+        else:
+            if not self.checks:
+                raise ValueError("Automated evidence must record the validation gates it passed")
+            if (self.review_method == "llm_resolved") != bool(self.resolution_note):
+                raise ValueError("LLM-resolved evidence, and only it, requires a resolution note")
+        return self
+
+    @property
+    def trust(self) -> str:
+        if self.review_method in REVIEWED_METHODS:
+            return "reviewed"
+        return "automated" if self.review_method == "automated_extraction" else "llm_resolved"
 
 
 class Fact(Record):

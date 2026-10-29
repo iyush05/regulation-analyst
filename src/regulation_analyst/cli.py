@@ -71,6 +71,12 @@ def parser():
         p.add_argument(
             "--known-on", help="Only sources with verified publication dates by YYYY-MM-DD"
         )
+        p.add_argument(
+            "--trust",
+            choices=["allow_automated", "reviewed_only"],
+            default="allow_automated",
+            help="Exclude automated and LLM-resolved facts with reviewed_only",
+        )
     calc = commands.add_parser("calculate", help="Apply a registry formula to ordered fact IDs")
     calc.add_argument("formula")
     calc.add_argument("fact_ids", nargs="+")
@@ -309,6 +315,7 @@ def main(argv=None) -> int:
                         basis=args.basis,
                         policy=args.policy,
                         known_on=args.known_on,
+                        trust=args.trust,
                     ),
                 )
                 print(

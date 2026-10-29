@@ -14,7 +14,8 @@ from . import __version__
 from .answering import contains, parse_years
 from .errors import ResearchError
 from .metrics import calculate
-from .models import Basis, Policy, Scope
+from .models import Basis, Policy, Scope, Trust
+from .providers import strict_schema
 from .store import canonical
 
 
@@ -27,6 +28,7 @@ class Selection(Arguments):
     basis: Basis = "Ind AS"
     policy: Policy = "latest_available"
     known_on: str | None = None
+    trust: Trust = "allow_automated"
 
 
 class TableArgs(Selection):
@@ -101,18 +103,6 @@ TOOLS = {
 }
 
 
-def strict_schema(value):
-    if isinstance(value, list):
-        return [strict_schema(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    result = {key: strict_schema(item) for key, item in value.items() if key != "default"}
-    if result.get("type") == "object":
-        result["additionalProperties"] = False
-        result["required"] = list(result.get("properties", {}))
-    return result
-
-
 def tool_schemas():
     return [
         {
@@ -173,6 +163,7 @@ class Ledger:
                     known_on=date.fromisoformat(self.selection.known_on)
                     if self.selection.known_on
                     else None,
+                    trust=self.selection.trust,
                 )
                 if selected.id != fact.id:
                     raise ResearchError(
@@ -248,6 +239,8 @@ class Ledger:
                         f"{item['scope']} · {item['basis']} · "
                         f"{item['metric']}: {item['value']} INR crore."
                     )
+                    if item["source"]["trust"] != "reviewed":
+                        line += f" Trust: {item['source']['trust']}."
                     evidence = [item["source"]]
                 elif kind == "calculation":
                     fresh = calculate(
@@ -289,6 +282,7 @@ class Ledger:
                         "verification": "recomputed"
                         if kind == "calculation"
                         else "canonical_record",
+                        "trust": sorted({s.get("trust", "reviewed") for s in evidence}),
                     }
                 )
         if selection.gaps:

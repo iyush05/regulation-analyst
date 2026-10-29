@@ -9,7 +9,16 @@ from datetime import date
 from pathlib import Path
 
 from .errors import ResearchError
-from .models import Bundle, Company, Document, Evidence, Fact, Passage, Provision
+from .models import (
+    REVIEWED_METHODS,
+    Bundle,
+    Company,
+    Document,
+    Evidence,
+    Fact,
+    Passage,
+    Provision,
+)
 from .numbers import decimal_text, normalize
 
 MODELS = {
@@ -46,8 +55,23 @@ CREATE TABLE IF NOT EXISTS provisions (
     verified_through TEXT NOT NULL, payload TEXT NOT NULL
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS provision_fts USING fts5(id UNINDEXED, text, clause);
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS ingestion_jobs (
+    company TEXT NOT NULL, item TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL,
+    detail TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (company, item)
+);
+PRAGMA user_version = 2;
 """
+SCHEMA_VERSIONS = (1, 2)
+JOB_STAGES = ("discover", "acquire", "extract", "map", "validate", "resolve", "import")
+JOB_STATUSES = (
+    "pending",
+    "running",
+    "done",
+    "needs_manual_pdf",
+    "review_required",
+    "failed",
+)
+TRUST_LABELS = {"automated": "automated extraction", "llm_resolved": "LLM-resolved"}
 
 
 def canonical(value) -> str:
@@ -83,13 +107,13 @@ class Store:
                     "not_found", "Database does not exist; run the demo or import command first"
                 )
             with self.connection() as conn:
-                if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
+                if conn.execute("PRAGMA user_version").fetchone()[0] not in SCHEMA_VERSIONS:
                     raise ResearchError("invalid_request", "Unsupported database schema version")
         else:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.connection(write=True) as conn:
                 version = conn.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, *SCHEMA_VERSIONS):
                     raise ResearchError("invalid_request", "Unsupported database schema version")
                 conn.executescript(SCHEMA)
 
@@ -147,6 +171,28 @@ class Store:
                 f"Company {query!r} is ambiguous or not covered; use list_companies",
             )
         return matches[0]
+
+    def record_job(self, company: str, item: str, stage: str, status: str, detail=None):
+        """Track resumable ingestion progress. Jobs are operational state, not corpus records."""
+        if stage not in JOB_STAGES or status not in JOB_STATUSES:
+            raise ResearchError("invalid_request", "Unknown ingestion stage or status")
+        with self.connection(write=True) as conn:
+            conn.execute(
+                "INSERT INTO ingestion_jobs VALUES (?, ?, ?, ?, ?, datetime('now')) "
+                "ON CONFLICT(company, item) DO UPDATE SET stage=excluded.stage, "
+                "status=excluded.status, detail=excluded.detail, updated_at=excluded.updated_at",
+                (company, item, stage, status, canonical(detail or {})),
+            )
+
+    def jobs(self, company: str | None = None) -> list[dict]:
+        with self.connection() as conn:
+            if conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+                return []
+            rows = conn.execute(
+                "SELECT * FROM ingestion_jobs WHERE ? IS NULL OR company=? ORDER BY company, item",
+                (company, company),
+            ).fetchall()
+        return [{**dict(row), "detail": json.loads(row["detail"])} for row in rows]
 
     def import_bundle(self, bundle: Bundle) -> dict:
         """Validate the full merged graph, then atomically append immutable records."""
@@ -344,13 +390,17 @@ class Store:
             location = f"PDF p. {evidence.pdf_page}"
             if evidence.printed_page:
                 location += f" (printed p. {evidence.printed_page})"
+        citation = f"[{document.title}, {location}]({link})"
+        if evidence.trust in TRUST_LABELS:
+            citation += f" (unreviewed: {TRUST_LABELS[evidence.trust]})"
         return {
             "evidence_id": evidence.id,
             "document_id": document.id,
             "title": document.title,
             "url": link,
             "location": location,
-            "citation": f"[{document.title}, {location}]({link})",
+            "citation": citation,
+            "trust": evidence.trust,
             "published_on": document.published_on.isoformat() if document.published_on else None,
             "reporting_year": document.reporting_year,
             "integrity": "local_snapshot" if document.sha256 else "remote_reference_only",
@@ -376,19 +426,27 @@ class Store:
         basis="Ind AS",
         policy="latest_available",
         known_on: date | None = None,
+        trust="allow_automated",
     ) -> Fact:
         if policy not in ("latest_available", "originally_reported"):
             raise ResearchError("invalid_request", "Unknown restatement policy")
+        if trust not in ("reviewed_only", "allow_automated"):
+            raise ResearchError("invalid_request", "Unknown trust policy")
         cutoff = date_text(known_on)
         with self.connection() as conn:
             rows = conn.execute(
-                "SELECT f.payload FROM facts f JOIN evidence e ON e.id=f.evidence_id "
+                "SELECT f.payload, json_extract(e.payload, '$.review_method') FROM facts f "
+                "JOIN evidence e ON e.id=f.evidence_id "
                 "JOIN documents d ON d.id=e.document_id "
                 "WHERE f.company_id=? AND f.metric=? AND f.fiscal_year=? "
                 "AND f.scope=? AND f.basis=? "
                 "AND (? IS NULL OR (d.published_on IS NOT NULL AND d.published_on <= ?))",
                 (company_id, metric, year, scope, basis, cutoff, cutoff),
             ).fetchall()
+        reviewed = [row for row in rows if row[1] in REVIEWED_METHODS]
+        # Reviewed evidence outranks automated extraction; automated values only fill gaps.
+        if reviewed or trust == "reviewed_only":
+            rows = reviewed
         candidates = [Fact.model_validate_json(row[0]) for row in rows]
         if policy == "originally_reported":
             candidates = [
@@ -400,8 +458,10 @@ class Store:
             superseded = {f.supersedes for f in candidates if f.supersedes}
             candidates = [f for f in candidates if f.id not in superseded]
         if not candidates:
+            qualifier = " reviewed" if trust == "reviewed_only" else ""
             raise ResearchError(
-                "not_found", f"No {scope} {basis} {metric} for {company_id} FY{year} under {policy}"
+                "not_found",
+                f"No{qualifier} {scope} {basis} {metric} for {company_id} FY{year} under {policy}",
             )
         identities = {
             (normalize(f.raw_value, f.unit), f.definition, f.period_start, f.period_end)

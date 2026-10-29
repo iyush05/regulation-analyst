@@ -17,13 +17,15 @@ class ResearchService:
         return Result(status=status, message=message, corpus_version=self.store.version, data=data)
 
     @staticmethod
-    def validate_selection(scope, basis, policy):
+    def validate_selection(scope, basis, policy, trust="allow_automated"):
         if scope not in ("consolidated", "standalone"):
             raise ResearchError("invalid_request", "Scope must be consolidated or standalone")
         if basis not in ("Ind AS", "IFRS"):
             raise ResearchError("invalid_request", "Accounting basis must be Ind AS or IFRS")
         if policy not in ("latest_available", "originally_reported"):
             raise ResearchError("invalid_request", "Unknown restatement policy")
+        if trust not in ("reviewed_only", "allow_automated"):
+            raise ResearchError("invalid_request", "Trust must be reviewed_only or allow_automated")
 
     def call(self, operation: str, **kwargs) -> Result:
         operations = {
@@ -59,9 +61,7 @@ class ResearchService:
                     "fact_count": len(covered),
                 }
             )
-        return self.result(
-            "ok", "Coverage is limited to imported, reviewed records", companies=companies
-        )
+        return self.result("ok", "Coverage is limited to imported records", companies=companies)
 
     def list_metrics(self) -> Result:
         return self.result(
@@ -86,8 +86,9 @@ class ResearchService:
         basis="Ind AS",
         policy="latest_available",
         known_on: str | None = None,
+        trust="allow_automated",
     ) -> Result:
-        self.validate_selection(scope, basis, policy)
+        self.validate_selection(scope, basis, policy, trust)
         company_id = self.store.resolve_company(company).id
         if not years or len(years) > 20:
             raise ResearchError("invalid_request", "Request between 1 and 20 fiscal years")
@@ -106,6 +107,7 @@ class ResearchService:
                         basis=basis,
                         policy=policy,
                         known_on=date.fromisoformat(known_on) if known_on else None,
+                        trust=trust,
                     )
                     rows.append(self.store.fact_data(fact))
                 except ResearchError as exc:
@@ -126,13 +128,14 @@ class ResearchService:
         )
         return self.result(
             status,
-            "Reviewed financial facts in INR crore",
+            "Financial facts in INR crore; each source states its trust level",
             facts=rows,
             missing=missing,
             scope=scope,
             basis=basis,
             restatement_policy=policy,
             known_on=known_on,
+            trust=trust,
         )
 
     def calculate(self, formula: str, fact_ids: list[str]) -> Result:
@@ -236,14 +239,16 @@ class ResearchService:
         basis="Ind AS",
         policy="latest_available",
         known_on=None,
+        trust="allow_automated",
     ) -> dict:
-        self.validate_selection(scope, basis, policy)
+        self.validate_selection(scope, basis, policy, trust)
         company_id = self.store.resolve_company(company).id
         filters = dict(
             scope=scope,
             basis=basis,
             policy=policy,
             known_on=date.fromisoformat(known_on) if known_on else None,
+            trust=trust,
         )
         needed = {
             "operating_margin": ["operating_profit", "revenue"],
@@ -284,8 +289,9 @@ class ResearchService:
         basis="Ind AS",
         policy="latest_available",
         known_on: str | None = None,
+        trust="allow_automated",
     ) -> Result:
-        self.validate_selection(scope, basis, policy)
+        self.validate_selection(scope, basis, policy, trust)
         if not 2 <= len(companies) <= 10 or not 1 <= len(years) <= 10:
             raise ResearchError(
                 "invalid_request", "Compare 2–10 distinct companies across 1–10 years"
@@ -307,6 +313,7 @@ class ResearchService:
                             basis=basis,
                             policy=policy,
                             known_on=known_on,
+                            trust=trust,
                         )
                     )
                 except ResearchError as exc:
@@ -346,8 +353,17 @@ class ResearchService:
         basis="Ind AS",
         policy="latest_available",
         known_on: str | None = None,
+        trust="allow_automated",
     ) -> Result:
         from .answering import answer
 
-        self.validate_selection(scope, basis, policy)
-        return answer(self, question, scope=scope, basis=basis, policy=policy, known_on=known_on)
+        self.validate_selection(scope, basis, policy, trust)
+        return answer(
+            self,
+            question,
+            scope=scope,
+            basis=basis,
+            policy=policy,
+            known_on=known_on,
+            trust=trust,
+        )

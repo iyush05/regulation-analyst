@@ -78,7 +78,7 @@ def validate_rows(store, rows: list[dict], calculations: list[dict]):
             raise ResearchError("invalid_request", "Calculation lineage failed verification")
 
 
-def answer(service, question: str, *, scope, basis, policy, known_on):
+def answer(service, question: str, *, scope, basis, policy, known_on, trust="allow_automated"):
     if not question.strip() or len(question) > 2000:
         raise ResearchError("invalid_request", "Question must contain 1–2000 characters")
     text = question.casefold()
@@ -177,7 +177,7 @@ def answer(service, question: str, *, scope, basis, policy, known_on):
         from datetime import date
 
         date.fromisoformat(known_on)
-    filters = dict(scope=scope, basis=basis, policy=policy, known_on=known_on)
+    filters = dict(scope=scope, basis=basis, policy=policy, known_on=known_on, trust=trust)
     rows, missing, traces = [], [], []
     for year in years:
         for company in companies:
@@ -374,4 +374,5 @@ def answer(service, question: str, *, scope, basis, policy, known_on):
         basis=basis,
         policy=policy,
         known_on=known_on,
+        trust=trust,
     )

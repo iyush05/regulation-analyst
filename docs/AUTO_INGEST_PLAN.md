@@ -47,7 +47,13 @@ column, or a text span on a page. The system then reads the value from the parse
 at that location, checks that the value string actually occurs there, and reruns every gate.
 This preserves the existing guarantee that every number traces to a source location.
 
-## 2. Phase 1: Foundations (≈3 days)
+## 2. Phase 1: Foundations (≈3 days) — done
+
+Implemented: trust labels and validation on `Evidence`; reviewed facts outrank automated ones in
+`select_fact`; `--trust reviewed_only`; citations marked "(unreviewed: …)"; the
+`ingestion_jobs` table (schema v2; v1 databases still read and migrate on the next write);
+`OpenAIProvider.structured()`, `image_input()`, and `UsageBudget`. Tests:
+`tests/test_trust_and_jobs.py`.
 
 1. **Git init and CI.** Commit the current state before the trust model changes.
 2. **Trust labels in the data model** (`models.py`, `store.py`):
