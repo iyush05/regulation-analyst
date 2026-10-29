@@ -92,8 +92,15 @@ STANDALONE = [
 ]
 
 
-def page(document, heading, unit, rows, grid=True):
+def shifted(text, year):
+    """Restate the fixture's FY2025 report as the report for another fiscal year."""
+    return text.replace("2024", "\0").replace("2025", str(year)).replace("\0", str(year - 1))
+
+
+def page(document, heading, unit, rows, grid=True, year=2025):
     p = document.new_page(width=595, height=842)
+    heading = shifted(heading, year)
+    rows = [[shifted(cell, year) for cell in row] for row in rows]
     for index, line in enumerate(["Synthetic Industries Limited", heading, unit]):
         if line:
             p.insert_text((40, 40 + 14 * index), line, fontsize=9)
@@ -109,7 +116,7 @@ def page(document, heading, unit, rows, grid=True):
             p.draw_line((x, ys[0]), (x, ys[-1]))
 
 
-def report(path, *, grid=True, finance_label="Finance cost"):
+def report(path, *, grid=True, finance_label="Finance cost", year=2025):
     profit_loss = [
         [finance_label, *row[1:]] if row[0] == "Finance cost" else row for row in PROFIT_LOSS
     ]
@@ -131,25 +138,35 @@ def report(path, *, grid=True, finance_label="Finance cost"):
             crore,
             profit_loss,
             grid,
+            year,
         )
-        page(document, "Consolidated Balance Sheet as at March 31, 2025", crore, BALANCE_SHEET)
+        page(
+            document,
+            "Consolidated Balance Sheet as at March 31, 2025",
+            crore,
+            BALANCE_SHEET,
+            year=year,
+        )
         page(
             document,
             "Consolidated Statement of Cash Flows for the year ended March 31, 2025",
             crore,
             CASH_FLOW,
+            year=year,
         )
         page(
             document,
             "Statement of Profit and Loss for the year ended March 31, 2025",
             "(₹ in lakhs)",
             STANDALONE,
+            year=year,
         )
         page(
             document,
             "Notes to the consolidated financial statements",
             "(In ₹ crore)",
             [YEARS_PL, ["Revenue from operations", "", "999", "888"]],
+            year=year,
         )
         document.save(path)
     return path

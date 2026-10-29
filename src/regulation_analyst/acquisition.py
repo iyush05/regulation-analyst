@@ -32,15 +32,17 @@ class SourceRequest(BaseModel):
     max_bytes: int = Field(default=50_000_000, ge=1, le=200_000_000)
 
 
-def validate_official_url(url: str) -> str:
+def validate_official_url(url: str, extra_domains: tuple[str, ...] = ()) -> str:
+    """HTTPS on a fixed official domain, or on a company's own confirmed domain."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
+    domains = (*OFFICIAL_DOMAINS, *extra_domains)
     if (
         parsed.scheme != "https"
         or parsed.username
         or parsed.password
         or parsed.port not in (None, 443)
-        or not any(host == domain or host.endswith("." + domain) for domain in OFFICIAL_DOMAINS)
+        or not any(host == domain or host.endswith("." + domain) for domain in domains)
     ):
         raise ResearchError(
             "invalid_request",
@@ -55,8 +57,9 @@ def acquire(
     *,
     local_pdf: str | Path | None = None,
     client: httpx.Client | None = None,
+    extra_domains: tuple[str, ...] = (),
 ) -> dict:
-    validate_official_url(source.url)
+    validate_official_url(source.url, extra_domains)
     root = Path(archive).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(prefix=".download-", dir=root)
@@ -85,7 +88,7 @@ def acquire(
                     consume(iter(lambda: incoming.read(65536), b""))
             else:
                 for _ in range(4):
-                    validate_official_url(final_url)
+                    validate_official_url(final_url, extra_domains)
                     with client.stream(
                         "GET",
                         final_url,

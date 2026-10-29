@@ -145,6 +145,28 @@ def parser():
     )
     automap.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     automap.add_argument("--max-tokens", type=int, default=50_000)
+    ingest = commands.add_parser(
+        "ingest", help="Find, download (or hand off to your browser), and map a company's reports"
+    )
+    ingest.add_argument("company", help="Company name or NSE symbol, e.g. 'Wipro'")
+    ingest.add_argument("--years", nargs="+", required=True)
+    ingest.add_argument(
+        "--url",
+        action="append",
+        default=[],
+        metavar="FY25=URL",
+        help="Official PDF link for a year; skips model-based discovery when given for all years",
+    )
+    ingest.add_argument("--manual", action="store_true", help="Skip download attempts")
+    ingest.add_argument("--no-browser", action="store_true", help="Print links instead of opening")
+    ingest.add_argument("--watch-minutes", type=float, default=0)
+    ingest.add_argument("--llm-map", action="store_true", help="Model picks rows rules missed")
+    ingest.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
+    ingest.add_argument("--max-tokens", type=int, default=100_000)
+    ingest.add_argument("--archive", type=Path, default=Path("data/sources"))
+    ingest.add_argument("--inbox", type=Path, default=Path("data/inbox"))
+    ingest.add_argument("--extractions", type=Path, default=Path("artifacts/extractions"))
+    ingest.add_argument("--output", type=Path, default=Path("artifacts/candidates"))
     review = commands.add_parser("review", help="Record your review and write an importable bundle")
     review.add_argument("candidate", type=Path)
     review.add_argument("--reviewer", required=True)
@@ -316,6 +338,53 @@ def main(argv=None) -> int:
                 "issues": result["report"]["issues"],
                 "usage": budget.usage if budget else None,
             }
+        elif args.command == "ingest":
+            import webbrowser
+
+            from .models import year_number
+            from .pipeline import ingest
+            from .providers import OpenAIProvider, UsageBudget
+
+            urls = {}
+            for entry in args.url:
+                year, separator, link = entry.partition("=")
+                if not separator:
+                    raise ResearchError("invalid_request", "Use --url FY25=https://...")
+                urls[year_number(year)] = link
+            needs_model = args.llm_map or set(urls) != {year_number(y) for y in args.years}
+            provider = (
+                OpenAIProvider(model=args.model)
+                if needs_model and os.environ.get("OPENAI_API_KEY") and args.model
+                else None
+            )
+            budget = UsageBudget(args.max_tokens) if provider else None
+            result = ingest(
+                Store(args.db, readonly=False),
+                args.company,
+                args.years,
+                provider=provider,
+                urls=urls,
+                archive=args.archive,
+                inbox=args.inbox,
+                extractions=args.extractions,
+                candidates=args.output,
+                opener=None if args.no_browser else webbrowser.open,
+                manual=args.manual,
+                watch_seconds=args.watch_minutes * 60,
+                llm_mapping=args.llm_map and provider is not None,
+                budget=budget,
+            )
+            waiting = [f for f in result["filings"] if f["status"] == "needs_manual_pdf"]
+            payload = {
+                "status": "partial" if waiting or result["not_found"] else "review_required",
+                **result,
+                "usage": budget.usage if budget else None,
+            }
+            if waiting:
+                payload["next_step"] = (
+                    f"Save the PDFs for FY{', FY'.join(str(f['fiscal_year']) for f in waiting)} "
+                    f"into {result['inbox']}, then rerun this command."
+                )
         elif args.command == "extract":
             from .ingestion import extract_pdf
 

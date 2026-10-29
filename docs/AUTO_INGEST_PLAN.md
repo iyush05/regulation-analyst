@@ -72,6 +72,13 @@ Implemented: trust labels and validation on `Evidence`; reviewed facts outrank a
 
 ## 3. Phase 2: Discovery and acquisition (≈4 days), new module `discovery.py`
 
+**Done (built in `pipeline.py`).** `regulation-analyst ingest "<company>" --years ...`:
+web-search identification (ambiguous names stop with the list of matches), official-link
+discovery limited to the company domain or BSE/NSE, plain downloads with an honest user agent,
+browser hand-off for refused links, and an inbox folder whose PDFs are matched by file name or
+by company name and fiscal year. Progress lives in `ingestion_jobs`; reruns resume. Bot
+protection is never circumvented. Live discovery is untested until an API key is configured.
+
 1. **Resolve the company.** The LLM, using `web_search`, returns a strict schema: legal name,
    aliases, NSE symbol, BSE code, ISIN, official website domain, and fiscal year end. The user
    confirms an ambiguous match (for example, "Tata" maps to many companies).

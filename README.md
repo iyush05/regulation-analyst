@@ -102,6 +102,25 @@ model, corpus hash, tool arguments/results, usage, and outcome; they never inclu
 Generated relevance/completeness is not independently verified. Research-only refusal rules
 are a product boundary, not a legal compliance certification.
 
+## Ingest a company
+
+`ingest` finds a company's annual reports, downloads them with a plain request, and maps them
+into review candidates. Sites that refuse automated downloads are not worked around: their
+links open in your browser instead. Save those PDFs into `data/inbox/` and rerun the same
+command (or pass `--watch-minutes 10` to wait); files are matched by name, or by company name
+and fiscal year in their first pages.
+
+```sh
+# Discovery uses web search: export OPENAI_API_KEY and REGULATION_AGENT_MODEL first.
+.venv/bin/regulation-analyst ingest "Wipro" --years FY24 FY25
+# Without a key, give the official links yourself:
+.venv/bin/regulation-analyst ingest "Wipro Limited" --years FY25 --url FY25=https://www.wipro.com/.../ar.pdf
+```
+
+Links must be on the company's own domain or BSE/NSE; aggregators are rejected. Progress is
+kept in the database, so reruns reuse discovery and skip finished steps. Output candidates
+still require `review` and `import` until automated validation gates are added.
+
 ## Acquire, extract, map, review
 
 Source request manifests are in [sources/](sources/). Acquire one document at a time through
