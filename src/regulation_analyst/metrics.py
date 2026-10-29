@@ -22,8 +22,9 @@ DEFINITIONS = {
     "eps_basic": "eps.basic.v1",
     "eps_diluted": "eps.diluted.v1",
     "operating_cash_flow": "cash_flow.net_from_operating_activities.v1",
-    # Stored as the positive magnitude of purchases of PPE and intangible assets.
-    "capex": "capex.purchase_ppe_intangibles_outflow.v1",
+    # Purchases of PPE (and intangibles where reported in the same line), stored with the
+    # cash-flow statement's sign: outflows are negative, so cells are copied without editing.
+    "capex": "capex.purchase_ppe_as_reported.v1",
     "equity_owners": "equity.attributable_to_owners.v1",
     "non_controlling_interest": "equity.non_controlling_interests.v1",
     "total_assets": "assets.total.v1",
@@ -164,9 +165,9 @@ SAME_YEAR = {
     ),
     "free_cash_flow": (
         ["operating_cash_flow", "capex"],
-        "operating_cash_flow - capex",
+        "operating_cash_flow + capex",
         "INR_crore",
-        lambda v: v["operating_cash_flow"] - v["capex"],
+        lambda v: v["operating_cash_flow"] + v["capex"],
         [],
     ),
     "current_ratio": (
@@ -312,7 +313,9 @@ def calculate(store: Store, formula: str, fact_ids: list[str]) -> dict:
                 for label in positive:
                     _positive(named[label], label.replace("_", " ").capitalize())
                 if formula == "free_cash_flow":
-                    _require(named["capex"] >= 0, "Capex is stored as a non-negative outflow")
+                    _require(
+                        named["capex"] <= 0, "Capex is stored as reported, a non-positive outflow"
+                    )
                 if formula == "roce":
                     _positive(
                         named["total_assets"] - named["current_liabilities"], "Capital employed"

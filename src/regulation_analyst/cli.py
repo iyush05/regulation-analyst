@@ -122,6 +122,29 @@ def parser():
     mapping.add_argument("extraction", type=Path)
     mapping.add_argument("mapping", type=Path)
     mapping.add_argument("--output", type=Path, required=True)
+    automap = commands.add_parser(
+        "automap", help="Locate statements in a PDF and write mapped candidates for review"
+    )
+    automap.add_argument("pdf", type=Path)
+    automap.add_argument("--company-id", required=True)
+    automap.add_argument("--company-name", required=True)
+    automap.add_argument("--alias", action="append", default=[])
+    automap.add_argument("--fiscal-end-month", type=int, default=3)
+    automap.add_argument("--document-id", required=True)
+    automap.add_argument("--title", required=True)
+    automap.add_argument("--url", required=True, help="Official HTTPS source of this PDF")
+    automap.add_argument("--kind", choices=["annual_report", "filing"], default="annual_report")
+    automap.add_argument("--reporting-year", type=int, required=True)
+    automap.add_argument("--published-on", type=date.fromisoformat)
+    automap.add_argument("--extractions", type=Path, default=Path("artifacts/extractions"))
+    automap.add_argument("--output", type=Path, default=Path("artifacts/candidates"))
+    automap.add_argument(
+        "--llm",
+        action="store_true",
+        help="Let the configured model choose rows for line items the rules missed",
+    )
+    automap.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
+    automap.add_argument("--max-tokens", type=int, default=50_000)
     review = commands.add_parser("review", help="Record your review and write an importable bundle")
     review.add_argument("candidate", type=Path)
     review.add_argument("--reviewer", required=True)
@@ -232,6 +255,66 @@ def main(argv=None) -> int:
                 "output": str(args.output),
                 "candidate_sha256": payload.get("candidate_sha256"),
                 "diagnostics": payload.get("diagnostics", []),
+            }
+        elif args.command == "automap":
+            from .autoextract import automap
+            from .models import Company, Document
+            from .providers import OpenAIProvider, UsageBudget
+
+            company = Company(
+                id=args.company_id,
+                name=args.company_name,
+                aliases=args.alias,
+                fiscal_end_month=args.fiscal_end_month,
+            )
+            document = Document(
+                id=args.document_id,
+                title=args.title,
+                url=args.url,
+                kind=args.kind,
+                company_id=company.id,
+                reporting_year=args.reporting_year,
+                published_on=args.published_on,
+                captured_on=date.today(),
+            )
+            budget = UsageBudget(args.max_tokens) if args.llm else None
+            result = automap(
+                args.pdf,
+                company,
+                document,
+                args.extractions,
+                provider=OpenAIProvider(model=args.model) if args.llm else None,
+                budget=budget,
+            )
+            args.output.mkdir(parents=True, exist_ok=True)
+            written = []
+            for candidate, extraction in zip(
+                result["candidates"], result["report"]["extractions"], strict=True
+            ):
+                path = args.output / f"{document.id}-{extraction['table_strategy']}.json"
+                with path.open("x") as output:
+                    output.write(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n")
+                written.append(
+                    {
+                        "candidate": str(path),
+                        "candidate_sha256": candidate["candidate_sha256"],
+                        "facts": len(candidate["bundle"]["facts"]),
+                        "diagnostics": candidate["diagnostics"],
+                    }
+                )
+            report_path = args.output / f"{document.id}-report.json"
+            with report_path.open("x") as output:
+                output.write(json.dumps(result["report"], indent=2, ensure_ascii=False) + "\n")
+            provenance = result["report"]["provenance"]
+            payload = {
+                "status": "review_required",
+                "candidates": written,
+                "report": str(report_path),
+                "mapped_by_rule": sum(p["method"] == "rule" for p in provenance),
+                "mapped_by_llm": sum(p["method"] == "llm" for p in provenance),
+                "unmapped": result["report"]["unmapped"],
+                "issues": result["report"]["issues"],
+                "usage": budget.usage if budget else None,
             }
         elif args.command == "extract":
             from .ingestion import extract_pdf

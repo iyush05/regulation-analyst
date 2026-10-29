@@ -115,6 +115,17 @@ mixing per-share values with monetary values.
 
 ## 5. Phase 4: Automatic extraction (≈5 days), new module `autoextract.py`
 
+**Done (built as Phase 3).** `regulation-analyst automap` locates statement pages from text
+headings (skipping contents and notes pages), extracts only those pages with both table
+strategies and picks the better one per page, maps rows with statement-, section-, and
+heading-aware rules, detects units from the page heading and year columns from header cells,
+and optionally asks the LLM for row indexes the rules missed (invalid picks are dropped).
+Output: one candidate per extraction artifact plus a provenance report (`rule`/`llm` per line
+item, unmapped items, issues). Capex is now stored with the statement's sign (outflow
+negative) so cells are never edited; FCF = OCF + capex. Not yet done: OCR-only documents need
+explicit `extract --ocr --pages`; a page-classification LLM fallback was not added.
+Validated only on generated PDFs; real-report accuracy is unmeasured until PDFs are supplied.
+
 1. **Locate statement pages.** Score each page's text for headings such as "Consolidated
    Statement of Profit and Loss", "Balance Sheet", and "Statement of Cash Flows". If scores are
    ambiguous, the LLM classifies only the shortlisted pages. Prefer consolidated statements; fall

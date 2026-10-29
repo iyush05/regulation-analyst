@@ -20,7 +20,7 @@ FY25 = {
     "depreciation_amortisation": "40",
     "profit_owners": "150",
     "operating_cash_flow": "180",
-    "capex": "60",
+    "capex": "(60)",
     "borrowings_current": "30",
     "borrowings_noncurrent": "70",
     "equity_owners": "500",
@@ -167,14 +167,14 @@ def test_formula_inputs_are_checked(expanded):
 
 
 def test_zero_or_negative_denominators_are_undefined(tmp_path, synthetic_bundle):
-    data = rows(values=dict(FY25, finance_costs="0", capex="(5)"))
+    data = rows(values=dict(FY25, finance_costs="0", capex="5"))
     writer = Store(tmp_path / "zero.sqlite3", readonly=False)
     writer.import_bundle(synthetic_bundle(data))
     service = ResearchService(Store(writer.path))
     with pytest.raises(ResearchError) as error:
         service.metric_for_year("alpha", "interest_coverage", 2025)
     assert error.value.status == "undefined"
-    with pytest.raises(ResearchError, match="non-negative outflow"):
+    with pytest.raises(ResearchError, match="non-positive outflow"):
         service.metric_for_year("alpha", "free_cash_flow", 2025)
 
 

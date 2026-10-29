@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -16,10 +17,26 @@ from .numbers import normalize
 from .store import canonical
 
 
+def squash(text) -> str:
+    """Case- and whitespace-insensitive form; PDF cells wrap labels across lines."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def header_identifies_year(header: str, fiscal_year: int) -> bool:
+    """A four-digit year, or a span such as 2024-25 that ends in the fiscal year."""
+    if re.search(rf"(?<!\d){fiscal_year}(?!\d)", header):
+        return True
+    return any(
+        int(start) + 1 == fiscal_year and int(end) == fiscal_year % 100
+        for start, end in re.findall(r"(?<!\d)(\d{4})\s*[-–/]\s*(\d{2})(?!\d)", header)
+    )
+
+
 class ColumnMapping(BaseModel):
     model_config = ConfigDict(extra="forbid")
     column: int = Field(ge=0)
-    header_row: int = Field(default=0, ge=0)
+    # None: the year header sits above the detected table, in its external header names.
+    header_row: int | None = Field(default=0, ge=0)
     fiscal_year: int = Field(ge=1900, le=2200)
     header_text: str = Field(min_length=1)
     revision: Literal["reported", "comparative", "restated"] = "reported"
@@ -163,16 +180,23 @@ def build_candidates(extraction_file: str | Path, mapping: MappingPlan) -> dict:
                         }
                     )
             try:
-                header_value = str(table["rows"][column.header_row][column.column] or "")
+                header_value = str(
+                    (
+                        table["headers"]
+                        if column.header_row is None
+                        else table["rows"][column.header_row]
+                    )[column.column]
+                    or ""
+                )
             except IndexError as exc:
                 raise ResearchError(
                     "invalid_request", "Mapped header cell is outside the table"
                 ) from exc
-            if column.header_text.casefold() not in header_value.casefold():
+            if squash(column.header_text) not in squash(header_value):
                 raise ResearchError(
                     "invalid_request", "Mapped year header is not in the source table column"
                 )
-            if str(column.fiscal_year) not in column.header_text:
+            if not header_identifies_year(column.header_text, column.fiscal_year):
                 raise ResearchError(
                     "invalid_request",
                     "Mapped header must explicitly identify the four-digit fiscal year",
@@ -193,7 +217,7 @@ def build_candidates(extraction_file: str | Path, mapping: MappingPlan) -> dict:
                     raise ResearchError(
                         "invalid_request", "Mapped cell lies outside the extracted table"
                     ) from exc
-                if not any(row_map.label.casefold() in str(cell or "").casefold() for cell in row):
+                if not any(squash(row_map.label) in squash(cell) for cell in row):
                     raise ResearchError(
                         "invalid_request", "Mapped row label is absent from the source row"
                     )

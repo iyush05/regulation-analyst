@@ -125,6 +125,16 @@ with setup instructions. [examples/table-mapping.json](examples/table-mapping.js
 .venv/bin/regulation-analyst import artifacts/reviewed.json
 ```
 
+For a full annual report, `automap` finds the statement pages and writes the mapping for you.
+Rules choose rows; with `--llm` the configured model may choose row indexes for items the
+rules missed, never values. Inspect the candidates and report, then use `review` and `import`:
+
+```sh
+.venv/bin/regulation-analyst automap /path/to/annual-report.pdf --company-id wipro \
+  --company-name "Wipro Limited" --document-id wipro-ar25 --title "Wipro Annual Report 2024-25" \
+  --url https://www.wipro.com/.../annual-report.pdf --reporting-year 2025 --output artifacts/candidates
+```
+
 The review command records a human/admin assertion; it cannot prove that someone actually
 inspected the source. It refuses changed candidates, unresolved diagnostics, and empty bundles.
 Optional `reconciliations` specify a total row, component rows, and a tolerance in crore.
