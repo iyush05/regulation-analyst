@@ -9,6 +9,8 @@ from test_autoextract import YEARS_PL, page
 from regulation_analyst.autoextract import automap
 from regulation_analyst.benchmark import score_report
 from regulation_analyst.errors import ResearchError
+from regulation_analyst.llm_layout import Cache, locate
+from regulation_analyst.metrics import DEFINITIONS
 from regulation_analyst.models import Company, Document
 
 # Labels the label rules do not recognise.
@@ -89,7 +91,8 @@ class Reader:
                 "rows": [
                     {"metric": "revenue", "row": find("Income from sale of products and services")},
                     {"metric": "profit_before_tax", "row": find("Earnings before taxes")},
-                    {"metric": "profit_total", "row": find("Net income for the year")},
+                    # Answered with the definition ID instead of the name: still accepted.
+                    {"metric": DEFINITIONS["profit_total"], "row": find("Net income for the year")},
                     {"metric": "tax_expense", "row": find("Total tax expense")},
                     # The year header row has no amounts in the chosen columns. Rejected.
                     {"metric": "other_income", "row": header},
@@ -218,3 +221,29 @@ def test_auto_keeps_the_rules_result_when_the_model_fails(tmp_path):
     assert "403" in result["report"]["model_error"]
     metrics = {f["metric"] for c in result["candidates"] for f in c["bundle"]["facts"]}
     assert "total_income" in metrics and "revenue" not in metrics
+
+
+class Pages:
+    identity = "controlled:pages"
+
+    def structured(self, instructions, content, schema, **kwargs):
+        return schema.model_validate(
+            {
+                "pages": [
+                    {"page": 1, "statement": "balance_sheet", "scope": "consolidated"},
+                    {"page": 1, "statement": "profit_loss", "scope": "consolidated"},
+                ]
+            }
+        )
+
+
+def test_one_page_can_hold_two_statements_side_by_side(tmp_path):
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text(
+            (40, 40), "Consolidated Balance Sheet    Consolidated Statement of Profit and Loss"
+        )
+        located = locate(pdf, Pages(), Cache(tmp_path, "sha", "controlled:pages"))
+    assert [(p["page"], p["statement"]) for p in located] == [
+        (1, "balance_sheet"),
+        (1, "profit_loss"),
+    ]

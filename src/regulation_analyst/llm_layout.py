@@ -22,6 +22,9 @@ from .review import squash
 PROMPT_VERSION = "layout.v1"
 MAX_STATEMENT_PAGES = 16
 MAX_ROWS = 140
+# The request lists each line item with its definition ID, and models sometimes answer with
+# the ID instead of the name. Both identify the same line item unambiguously.
+METRIC_NAMES = {definition: name for name, definition in DEFINITIONS.items()}
 
 
 class StatementPage(BaseModel):
@@ -114,7 +117,9 @@ def locate(pdf, provider, cache: Cache, budget=None) -> list[dict]:
     located, seen = [], set()
     for item in sorted(chosen, key=lambda p: p["page"]):
         number = item["page"]
-        if number not in headings or number in seen or len(located) >= MAX_STATEMENT_PAGES:
+        # One page can hold two statements side by side (e.g. balance sheet and profit and loss).
+        claim = (number, item["statement"])
+        if number not in headings or claim in seen or len(located) >= MAX_STATEMENT_PAGES:
             continue
         head = headings[number]
         titled = any(rx.search(head) for rx in STATEMENTS.values())
@@ -124,7 +129,7 @@ def locate(pdf, provider, cache: Cache, budget=None) -> list[dict]:
         # A claimed page must carry a statement title or continue the statement before it.
         if not (titled or follows) or "notes" in head[:60] or "ifrs" in head:
             continue
-        seen.add(number)
+        seen.add(claim)
         located.append(
             {
                 "page": number,
@@ -209,7 +214,7 @@ def read_table(
     matched, used = {}, set()
     allowed = set(STATEMENT_METRICS[statement])
     for choice in decision["rows"]:
-        metric, index = choice["metric"], choice["row"]
+        metric, index = METRIC_NAMES.get(choice["metric"], choice["metric"]), choice["row"]
         if metric not in allowed or metric in matched or not 0 <= index < len(rows):
             continue
         row = rows[index]

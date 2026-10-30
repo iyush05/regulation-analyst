@@ -96,6 +96,8 @@ def run_one(report: dict, pdf: Path, layout: str, work: Path, provider, max_toke
         "layout": mapped["report"].get("layout", layout),
         "seconds": round(time.monotonic() - started, 1),
         "usage": budget.usage if budget else None,
+        # In auto mode a failed model call keeps the rules result; say so in the report.
+        **({"error": mapped["report"]["model_error"]} if "model_error" in mapped["report"] else {}),
         "metrics": score_report(report, accepted, queued),
     }
 
