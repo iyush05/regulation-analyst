@@ -1,0 +1,20 @@
+# Render blueprint for the backend API. Persistent disks need a paid instance type.
+services:
+  - type: web
+    name: regulation-analyst-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: REGULATION_API_TOKEN
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: REGULATION_AGENT_MODEL
+        value: gpt-4.1
+      - key: REGULATION_CORS_ORIGINS
+        sync: false

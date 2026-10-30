@@ -15,6 +15,8 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+      # The web app's types are generated from this schema; it must match the code.
+      - run: regulation-analyst api --openapi /tmp/openapi.json && diff -u web/openapi.json /tmp/openapi.json
       - run: regulation-analyst demo
       - run: regulation-analyst evaluate --output artifacts/evaluation.json
       - run: regulation-analyst --db data/research-matrix.sqlite3 load-corpus
@@ -23,3 +25,17 @@ jobs:
         with:
           name: development-evaluation
           path: artifacts/
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build

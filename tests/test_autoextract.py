@@ -431,6 +431,20 @@ def test_eps_follows_its_heading_and_skips_share_counts():
     assert (found["eps_basic"], found["eps_diluted"]) == (3, 4)
 
 
+def test_other_comprehensive_income_tax_is_not_tax_expense():
+    rows = [
+        ["Profit before tax", "", "37,608", "35,988"],
+        ["Other comprehensive income", "", "", ""],
+        [
+            "(ii) Income tax expense relating to items that will be reclassified",
+            "",
+            "(965)",
+            "(898)",
+        ],
+    ]
+    assert "tax_expense" not in classify("profit_loss", rows)
+
+
 def test_total_tax_label_is_recognised_for_company_totals():
     rows = [
         ["IX. Profit before tax (VII-VIII)", "", "27,955.11", "2,690.00"],

@@ -147,6 +147,38 @@ a site refuses open in your browser and appear as gaps naming the file to save i
 `serve --allow-ingest` adds the same `ingest_company` tool to MCP, marked as non-read-only;
 without the flag the MCP server stays read-only.
 
+## Web app
+
+The repository holds two separately deployed parts: the Python package with an HTTP API, and
+a React app in [`web/`](web/). The API is single-user: one access token guards every endpoint
+except `/api/health`.
+
+Run both locally (two terminals):
+
+```sh
+uv pip install --python .venv/bin/python -e ".[api]"   # FastAPI, once
+REGULATION_API_TOKEN=choose-a-long-random-token .venv/bin/regulation-analyst api
+cd web && npm install && npm run dev                     # http://localhost:5173
+```
+
+Sign in with the token. **Ask** runs the rule-based workflow or the agent (with optional
+company ingestion); answers link each source cell, and archived pages render with the cited
+cell outlined. **Companies** shows imported years and verification, adds companies, follows
+ingestion progress, and accepts PDF uploads for downloads a site refuses.
+
+After changing the API, regenerate the frontend's types: `cd web && npm run gen:api`. CI fails
+if `web/openapi.json` is stale.
+
+### Deploy
+
+- **Backend (Render):** create a Blueprint from [`render.yaml`](render.yaml). It builds the
+  [`Dockerfile`](Dockerfile) and mounts a persistent disk at `/data` for the database, archived
+  PDFs, and run logs (persistent disks need a paid instance). Set `OPENAI_API_KEY` and
+  `REGULATION_CORS_ORIGINS` (the frontend's URL); copy the generated `REGULATION_API_TOKEN`.
+  A fresh disk starts with the bundled corpus.
+- **Frontend (Vercel):** import the repository with root directory `web` and set
+  `VITE_API_URL` to the backend URL. [`web/vercel.json`](web/vercel.json) configures the build.
+
 ## Acquire, extract, map, review
 
 Source request manifests are in [sources/](sources/). Acquire one document at a time through

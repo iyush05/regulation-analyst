@@ -61,8 +61,9 @@ PATTERNS = {
     # Company totals only: lines limited to continuing or discontinued operations are
     # different measures and must stay gaps rather than be stored as totals.
     "profit_before_tax": r"^profit before (income )?tax(es)?\b(?!.*(continuing|discontinued))",
+    # "Income tax relating to items that will be reclassified" is other comprehensive income.
     "tax_expense": r"^(total )?(income )?tax (\(credit\)\s*/\s*)?expenses?\b"
-    r"(?!.*(continuing|discontinued))",
+    r"(?!.*(continuing|discontinued|relating to|items))",
     "profit_total": r"^profit for the (year|period)\b(?!.*(attributable|continuing|discontinued))",
     "profit_discontinued": r"^profit\s*(/\s*\(?loss\)?)?\s*(for the (year|period) )?"
     r"from discontinued operations?\b(?!.*before tax)",
