@@ -544,3 +544,82 @@ def ingest(
         "not_found": planned.get("missing", []),
         "inbox": str(Path(inbox).resolve()),
     }
+
+
+def agent_ingestor(
+    database,
+    provider,
+    *,
+    max_tokens: int = 100_000,
+    opener=None,
+    llm_resolve=False,
+    client=None,
+    **paths,
+):
+    """An ingest_company tool for the agent: each call has its own model token budget."""
+    from .providers import UsageBudget
+    from .store import Store
+
+    def run(company: str, years: list[str]) -> dict:
+        budget = UsageBudget(max_tokens)
+        try:
+            result = ingest(
+                Store(database, readonly=False),
+                company,
+                years,
+                provider=provider,
+                client=client,
+                opener=opener,
+                budget=budget,
+                llm_resolve=llm_resolve,
+                **paths,
+            )
+        except ResearchError as exc:
+            return {
+                "status": exc.status,
+                "message": str(exc),
+                "data": {
+                    "missing": [{"reason": f"Could not ingest {company}: {exc}"}],
+                    "usage": budget.usage,
+                },
+            }
+        missing, filings, imported = [], [], 0
+        for filing in result["filings"]:
+            year, gate_summary = filing["fiscal_year"], filing.get("gate", {})
+            imported += gate_summary.get("imported", 0) + gate_summary.get("already_imported", 0)
+            filings.append(
+                {
+                    "fiscal_year": year,
+                    "status": filing["status"],
+                    "imported": gate_summary.get("imported", 0),
+                    "queued_for_review": gate_summary.get("queued", 0),
+                }
+            )
+            if filing["status"] == "needs_manual_pdf":
+                missing.append(
+                    {
+                        "reason": f"FY{year} annual report could not be downloaded automatically: "
+                        f"save {filing['url']} into {result['inbox']} and ask again"
+                    }
+                )
+            elif filing["status"] == "map_failed":
+                missing.append(
+                    {"reason": f"FY{year} annual report could not be mapped: {filing['map_error']}"}
+                )
+        missing += [
+            {"reason": f"No official FY{year} annual report link was found for {company}"}
+            for year in result["not_found"]
+        ]
+        return {
+            "status": "ok" if not missing and imported else "partial" if imported else "not_found",
+            "message": "Ingestion finished; retrieve figures with get_table or compare_companies",
+            "data": {
+                "company": {"id": result["company"]["id"], "name": result["company"]["name"]},
+                "filings": filings,
+                "imported": imported,
+                "missing": missing,
+                "usage": budget.usage,
+            },
+        }
+
+    return run

@@ -65,6 +65,14 @@ class Company(Record):
     fiscal_end_month: int = Field(default=3, ge=1, le=12)
     fiscal_end_day: int = Field(default=31, ge=1, le=31)
 
+    @property
+    def names(self) -> list[str]:
+        """Names a user may write: ID, legal name with or without its suffix, and aliases."""
+        short = re.sub(
+            r"[\s,]+(?:private\s+)?(?:limited|ltd\.?|pvt\.?\s+ltd\.?)$", "", self.name, flags=re.I
+        )
+        return list(dict.fromkeys([self.id, self.name, short, *self.aliases]))
+
 
 class Document(Record):
     title: str = Field(min_length=1)

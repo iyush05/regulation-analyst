@@ -38,6 +38,7 @@ class ResearchService:
             "get_source": self.get_source,
             "answer_question": self.answer_question,
             "list_metrics": self.list_metrics,
+            "check_coverage": self.check_coverage,
         }
         if operation not in operations:
             return self.result("invalid_request", f"Unknown operation: {operation}")
@@ -62,6 +63,49 @@ class ResearchService:
                 }
             )
         return self.result("ok", "Coverage is limited to imported records", companies=companies)
+
+    def check_coverage(self, company: str, years: list[str | int] | None = None) -> Result:
+        """Which line items exist per year, scope, and basis, and how they were verified."""
+        try:
+            found = self.store.resolve_company(company)
+        except ResearchError as exc:
+            if exc.status != "not_found":
+                raise
+            return self.result(
+                "not_found",
+                f"{company} is not in the corpus; its filings must be ingested first",
+                company=company,
+                covered=False,
+            )
+        wanted = sorted({year_number(y) for y in years}) if years else None
+        coverage: dict[int, dict[str, dict]] = {}
+        for fact in self.store.records("facts"):
+            if fact.company_id != found.id or (wanted and fact.fiscal_year not in wanted):
+                continue
+            trust = self.store.source(fact.evidence_id)["trust"]
+            slot = coverage.setdefault(fact.fiscal_year, {}).setdefault(
+                f"{fact.scope} {fact.basis}", {"metrics": set(), "trust": {}}
+            )
+            slot["metrics"].add(fact.metric)
+            slot["trust"][trust] = slot["trust"].get(trust, 0) + 1
+        years_found = {
+            year: {
+                selection: {"metrics": sorted(slot["metrics"]), "trust": slot["trust"]}
+                for selection, slot in by_selection.items()
+            }
+            for year, by_selection in sorted(coverage.items())
+        }
+        missing = [year for year in (wanted or []) if year not in coverage]
+        return self.result(
+            "partial" if missing else "ok" if coverage else "not_found",
+            "Imported line items by fiscal year; comparative-only years may be incomplete",
+            company={"id": found.id, "name": found.name},
+            covered=True,
+            years=years_found,
+            # Deliberately not a "missing" list: ingestion may still fill these years, and
+            # answers report only gaps that remain.
+            missing_years=missing,
+        )
 
     def list_metrics(self) -> Result:
         return self.result(

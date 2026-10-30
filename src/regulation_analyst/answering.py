@@ -167,11 +167,13 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     companies = [
         c
         for c in service.store.records("companies")
-        if any(contains(text, name) for name in [c.id, c.name, *c.aliases])
+        if any(contains(text, name) for name in c.names)
     ]
     if not companies:
         raise ResearchError(
-            "not_found", "Name a covered company; use list_companies to inspect coverage"
+            "not_found",
+            "Name a covered company; use list_companies to inspect coverage. To add an Indian "
+            'listed company: regulation-analyst ingest "<company>" --years FY24 FY25',
         )
     if len(companies) > 3:
         raise ResearchError(
@@ -228,7 +230,13 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
             status,
             "The requested financial evidence is not available",
             missing=missing,
-            answer="Not found in the reviewed corpus. " + "; ".join(m["reason"] for m in missing),
+            answer="Not found in the corpus. "
+            + "; ".join(m["reason"] for m in missing)
+            + ". To import these years: regulation-analyst ingest "
+            + " ".join(
+                f'"{c.name}" --years ' + " ".join(f"FY{y % 100:02d}" for y in years)
+                for c in companies[:1]
+            ),
         )
     for year in years:
         comparable = [r for r in rows if r["fiscal_year"] == year]

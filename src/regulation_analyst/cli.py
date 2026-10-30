@@ -33,7 +33,12 @@ def parser():
     )
     commands.add_parser("coverage", help="Inspect reviewed company coverage")
     commands.add_parser("metrics", help="Inspect supported metric definitions")
-    commands.add_parser("serve", help="Run read-only MCP over stdio")
+    serve = commands.add_parser("serve", help="Run read-only MCP over stdio")
+    serve.add_argument(
+        "--allow-ingest",
+        action="store_true",
+        help="Also expose ingest_company, which writes to the corpus (needs OpenAI settings)",
+    )
     imp = commands.add_parser(
         "import", help="Validate and atomically import a reviewed JSON bundle"
     )
@@ -51,6 +56,14 @@ def parser():
     agent.add_argument(
         "--max-tokens", type=int, default=60_000, help="Total model tokens across all turns"
     )
+    agent.add_argument(
+        "--allow-ingest",
+        action="store_true",
+        help="Let the agent find, download, validate, and import missing companies' reports",
+    )
+    agent.add_argument("--ingest-tokens", type=int, default=100_000)
+    agent.add_argument("--llm-resolve", action="store_true")
+    agent.add_argument("--no-browser", action="store_true")
     index = commands.add_parser(
         "index", help="Build a real embedding index using the configured provider"
     )
@@ -430,9 +443,18 @@ def main(argv=None) -> int:
         elif args.command == "serve":
             from .mcp_server import create_server
 
-            create_server(args.db, retriever=make_retriever(Store(args.db), args.hybrid_index)).run(
-                transport="stdio"
-            )
+            ingestor = None
+            if args.allow_ingest:
+                from .pipeline import agent_ingestor
+                from .providers import OpenAIProvider
+
+                model = os.environ.get("REGULATION_AGENT_MODEL", "")
+                ingestor = agent_ingestor(args.db, OpenAIProvider(model=model))
+            create_server(
+                args.db,
+                retriever=make_retriever(Store(args.db), args.hybrid_index),
+                ingestor=ingestor,
+            ).run(transport="stdio")
             return 0
         else:
             store = Store(args.db)
@@ -477,13 +499,26 @@ def main(argv=None) -> int:
                 print(json.dumps(payload, indent=2))
                 return 0
             if args.command == "agent":
+                import webbrowser
+
                 from .agent import Budgets, Selection, run_agent
+                from .pipeline import agent_ingestor
                 from .providers import OpenAIProvider
 
+                provider = OpenAIProvider(model=args.model)
                 result = run_agent(
                     service,
                     args.question,
-                    OpenAIProvider(model=args.model),
+                    provider,
+                    ingestor=agent_ingestor(
+                        args.db,
+                        provider,
+                        max_tokens=args.ingest_tokens,
+                        opener=None if args.no_browser else webbrowser.open,
+                        llm_resolve=args.llm_resolve,
+                    )
+                    if args.allow_ingest
+                    else None,
                     budgets=Budgets(
                         max_tool_calls=args.max_tool_calls,
                         max_seconds=args.max_seconds,

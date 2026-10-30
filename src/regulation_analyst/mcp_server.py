@@ -11,7 +11,7 @@ from .service import ResearchService
 from .store import Store
 
 
-def create_server(database: str | Path, *, retriever=None) -> FastMCP:
+def create_server(database: str | Path, *, retriever=None, ingestor=None) -> FastMCP:
     service = ResearchService(Store(database, readonly=True), retriever=retriever)
     server = FastMCP(
         "Regulation Analyst",
@@ -133,6 +133,25 @@ def create_server(database: str | Path, *, retriever=None) -> FastMCP:
             known_on=known_on,
             limit=limit,
         )
+
+    @server.tool(annotations=annotations)
+    def check_coverage(company: str, years: list[str] | None = None) -> Result:
+        """Imported fiscal years and line items for a company, with how they were verified."""
+        return service.call("check_coverage", company=company, years=years)
+
+    if ingestor is not None:
+
+        @server.tool(
+            annotations=ToolAnnotations(
+                readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+            )
+        )
+        def ingest_company(company: str, years: list[str]) -> dict:
+            """Find, download, validate, and import a listed company's annual reports (FY25 style
+            years, at most three). Slow; writes automatically extracted facts to the corpus."""
+            if not 1 <= len(years) <= 3:
+                return {"status": "invalid_request", "message": "Request one to three years"}
+            return ingestor(company, years)
 
     @server.tool(annotations=annotations)
     def get_source(evidence_id: str) -> Result:

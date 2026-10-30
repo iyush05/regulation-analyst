@@ -161,9 +161,7 @@ class Store:
     def resolve_company(self, query: str) -> Company:
         needle = query.strip().casefold()
         matches = [
-            c
-            for c in self.records("companies")
-            if needle in {s.casefold() for s in [c.id, c.name, *c.aliases]}
+            c for c in self.records("companies") if needle in {s.casefold() for s in c.names}
         ]
         if len(matches) != 1:
             raise ResearchError(

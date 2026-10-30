@@ -14,7 +14,7 @@ from . import __version__
 from .answering import contains, parse_years
 from .errors import ResearchError
 from .metrics import calculate
-from .models import Basis, Policy, Scope, Trust
+from .models import Basis, Policy, Scope, Trust, year_number
 from .providers import strict_schema
 from .store import canonical
 
@@ -70,6 +70,16 @@ class SourceArgs(Arguments):
     evidence_id: str
 
 
+class CoverageArgs(Arguments):
+    company: str = Field(min_length=1, max_length=200)
+    years: list[str] = Field(max_length=10)
+
+
+class IngestArgs(Arguments):
+    company: str = Field(min_length=2, max_length=200)
+    years: list[str] = Field(min_length=1, max_length=3)
+
+
 class FinishArgs(Arguments):
     fact_ids: list[str] = Field(max_length=40)
     calculation_ids: list[str] = Field(max_length=30)
@@ -96,6 +106,10 @@ TOOLS = {
     "search_filings": (FilingArgs, "Retrieve reviewed passages and management commentary."),
     "search_regulations": (RegulationArgs, "Retrieve provisions verified for an explicit date."),
     "get_source": (SourceArgs, "Inspect source location and review provenance."),
+    "check_coverage": (
+        CoverageArgs,
+        "Check which fiscal years and line items are imported for a company.",
+    ),
     "finish": (
         FinishArgs,
         "Select returned evidence IDs for the final answer. No invented IDs or numbers.",
@@ -103,7 +117,20 @@ TOOLS = {
 }
 
 
-def tool_schemas():
+# Offered only when the caller supplies an ingestor; it writes to the corpus.
+INGEST_TOOL = {
+    "ingest_company": (
+        IngestArgs,
+        "Find, download, validate, and import an Indian listed company's annual reports for "
+        "the given fiscal years. Slow. Use only after check_coverage shows the company or "
+        "years are missing, once per company, for only the years the question needs.",
+    )
+}
+MAX_INGESTIONS = 2
+
+
+def tool_schemas(ingest: bool = False):
+    tools = {**TOOLS, **(INGEST_TOOL if ingest else {})}
     return [
         {
             "type": "function",
@@ -112,7 +139,7 @@ def tool_schemas():
             "parameters": strict_schema(model.model_json_schema()),
             "strict": True,
         }
-        for name, (model, description) in TOOLS.items()
+        for name, (model, description) in tools.items()
     ]
 
 
@@ -389,8 +416,13 @@ def run_agent(
     budgets: Budgets | None = None,
     log_dir: str | Path = "artifacts/runs",
     selection: Selection | None = None,
+    ingestor=None,
 ):
+    """`ingestor(company, years) -> result dict` enables ingest_company; time spent ingesting
+    is excluded from the agent's own time budget, and its model usage is logged separately."""
     budgets, selection = budgets or Budgets(), selection or Selection()
+    allowed = {**TOOLS, **(INGEST_TOOL if ingestor else {})}
+    ingestions = []
     if not question.strip() or len(question) > 2000:
         raise ResearchError("invalid_request", "Question must contain 1–2000 characters")
     if re.search(
@@ -415,7 +447,7 @@ def run_agent(
     companies = {
         c.id
         for c in service.store.records("companies")
-        if any(contains(text, alias) for alias in [c.id, c.name, *c.aliases])
+        if any(contains(text, alias) for alias in c.names)
     }
     regulatory_date = re.search(r"\b(?:as of|on)\s+(\d{4}-\d{2}-\d{2})\b", text)
     years = parse_years(question) if re.search(r"\bFY\s*['’]?\s*\d", question, re.I) else []
@@ -437,7 +469,15 @@ def run_agent(
             "Never calculate mentally, invent IDs, substitute EBITDA for operating profit, mix "
             "periods/companies, or give investment advice. Call finish with evidence references. "
             "Use gaps for unsupported requests. Retrieve exact management passages when asked why. "
-            "Regulation questions need an explicit as-of date. Financial selection is locked to: "
+            "Regulation questions need an explicit as-of date. "
+            + (
+                "If check_coverage shows a company or fiscal year is missing, call "
+                "ingest_company once for that company with only the needed years, then retrieve "
+                "its figures. If filings still need a manual download, finish with gaps. "
+                if ingestor
+                else ""
+            )
+            + "Financial selection is locked to: "
             + selection.model_dump_json(),
         },
         {"role": "user", "content": question},
@@ -461,7 +501,7 @@ def run_agent(
                 raise ResearchError("invalid_request", "Corpus changed during the research run")
             response = provider.respond(
                 messages,
-                tool_schemas(),
+                tool_schemas(ingest=ingestor is not None),
                 max_output_tokens=min(
                     budgets.max_output_tokens, budgets.max_total_tokens - usage["total_tokens"]
                 ),
@@ -494,9 +534,55 @@ def run_agent(
                 if calls > budgets.max_tool_calls:
                     raise ResearchError("not_found", "Agent reached its tool-call budget")
                 name = call.get("name")
-                if name not in TOOLS:
+                if name not in allowed:
                     raise ResearchError("invalid_request", "Model requested an unauthorized tool")
-                arguments = TOOLS[name][0].model_validate_json(call["arguments"])
+                arguments = allowed[name][0].model_validate_json(call["arguments"])
+                if name == "ingest_company":
+                    requested = {year_number(y) for y in arguments.years}
+                    permitted = set(years) | ({min(years) - 1} if years else set())
+                    if years and not requested <= permitted:
+                        raise ResearchError(
+                            "invalid_request", "Ingestion years must come from the question"
+                        )
+                    if len(ingestions) >= MAX_INGESTIONS:
+                        raise ResearchError("not_found", "Agent reached its ingestion limit")
+                    paused = time.monotonic()
+                    tool_result = ingestor(arguments.company, sorted(arguments.years))
+                    seconds = time.monotonic() - paused
+                    started += seconds  # Ingestion time does not count against the agent.
+                    version = service.store.version  # The corpus changed on purpose.
+                    data = tool_result.get("data", {})
+                    if data.get("imported"):
+                        ledger.missing.clear()  # Earlier gaps may now be filled.
+                    company_id = data.get("company", {}).get("id")
+                    if company_id and companies:
+                        companies.add(company_id)
+                    ledger.absorb(data)
+                    ingestions.append(
+                        {
+                            "company": arguments.company,
+                            "years": arguments.years,
+                            "seconds": round(seconds, 3),
+                            "status": tool_result.get("status"),
+                            "usage": data.get("usage"),
+                        }
+                    )
+                    trace.append(
+                        {
+                            "iteration": iteration + 1,
+                            "tool": name,
+                            "arguments": arguments.model_dump(),
+                            "result": tool_result,
+                        }
+                    )
+                    messages.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call["call_id"],
+                            "output": canonical(for_model(tool_result)),
+                        }
+                    )
+                    continue
                 if name == "finish":
                     if len(tool_calls) != 1:
                         raise ResearchError(
@@ -584,6 +670,7 @@ def run_agent(
         "model": provider.identity,
         "corpus_version": version,
         "budgets": budgets.model_dump(),
+        "ingestions": ingestions,
         "selection": selection.model_dump(),
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "usage": usage,

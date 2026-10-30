@@ -99,7 +99,9 @@ def test_real_mcp_stdio_handshake_schema_tool_call_and_resource(store, tmp_path)
                             "search_regulations",
                             "get_source",
                             "answer_question",
+                            "check_coverage",
                         }
+                        # ingest_company exists only with serve --allow-ingest.
                         assert all(tool.annotations.readOnlyHint for tool in tools.tools)
                         assert all(tool.outputSchema for tool in tools.tools)
                         answer = await session.call_tool(

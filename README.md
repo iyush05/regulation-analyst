@@ -132,6 +132,21 @@ re-run. Everything else goes to `artifacts/candidates/*-queue.json` for review. 
 are labelled `automated_extraction` or `llm_resolved`; answers mark them as unreviewed, reviewed
 facts take precedence, and `--trust reviewed_only` excludes them. Use `--no-import` to gate only.
 
+### Let the agent add companies
+
+With `--allow-ingest`, the agent checks coverage and, for a company or year that is missing,
+runs the same ingestion pipeline before answering. Ingestion time is excluded from the agent's
+time budget and has its own token budget (`--ingest-tokens`). Years must come from the
+question (plus the prior year for opening balances), at most two ingestions per run. Downloads
+a site refuses open in your browser and appear as gaps naming the file to save into the inbox.
+
+```sh
+.venv/bin/regulation-analyst agent --allow-ingest "How did Wipro's net margin change from FY24 to FY25?"
+```
+
+`serve --allow-ingest` adds the same `ingest_company` tool to MCP, marked as non-read-only;
+without the flag the MCP server stays read-only.
+
 ## Acquire, extract, map, review
 
 Source request manifests are in [sources/](sources/). Acquire one document at a time through

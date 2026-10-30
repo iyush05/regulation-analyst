@@ -182,6 +182,13 @@ in a `review-queue` command and as gaps in answers. The resolver gets at most 2 
 
 ## 7. Phase 6: Agent integration (≈3 days)
 
+**Done.** `check_coverage` (read-only, agent and MCP) and `ingest_company` (agent with
+`--allow-ingest`, MCP with `serve --allow-ingest`). Company names match without legal suffixes
+("Wipro" finds "Wipro Limited"). Corpus-version checks reset after a deliberate ingestion;
+gaps seen before an ingestion that imported data are discarded so answers report only what
+remains missing. `ask` suggests the ingest command for missing companies or years. Tested
+with a controlled model and HTTP; live agent behaviour with ingestion is unmeasured.
+
 1. New agent tools in `agent.py`:
    - `ensure_company_data(company, years)` returns coverage, trust labels, and missing metrics.
    - `ingest_company(company, years)` runs the pipeline or resumes a job. It is enabled only in
