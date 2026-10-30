@@ -304,19 +304,26 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     )
     if wants_commentary:
         for company in companies:
-            hits = service.search_filings(
-                metric.replace("_", " "),
-                company=company.id,
-                year=years[-1],
-                document_type="transcript",
-                limit=8,
-                known_on=known_on,
-            ).data["passages"]
-            supported = [
-                hit
-                for hit in hits
-                if hit["speaker_role"] == "management" and metric in hit["topics"]
-            ]
+            # Call transcripts first; else management's discussion in the annual report.
+            hits = []
+            for kind in ("transcript", "annual_report"):
+                hits = [
+                    hit
+                    for hit in service.search_filings(
+                        # Explanations use causal wording; it ranks them above passing mentions.
+                        metric.replace("_", " ")
+                        + " increase decrease growth primarily attributable due driven",
+                        company=company.id,
+                        year=years[-1],
+                        document_type=kind,
+                        limit=8,
+                        known_on=known_on,
+                    ).data["passages"]
+                    if hit["speaker_role"] == "management" and metric in hit["topics"]
+                ]
+                if hits:
+                    break
+            supported = hits
             commentary.extend(supported[:2])
             if not supported:
                 missing.append(

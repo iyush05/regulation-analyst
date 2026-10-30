@@ -132,6 +132,12 @@ re-run. Everything else goes to `artifacts/candidates/*-queue.json` for review. 
 are labelled `automated_extraction` or `llm_resolved`; answers mark them as unreviewed, reviewed
 facts take precedence, and `--trust reviewed_only` excludes them. Use `--no-import` to gate only.
 
+Each annual report's Management's discussion and analysis is also imported as verbatim,
+page-cited excerpts (read column by column; tables and page furniture dropped), tagged by topic
+(revenue, segments, constant currency, margins, costs, outlook, …). Agent and `ask` answers
+quote these for "why" questions instead of generating explanations. Archived reports gain
+commentary on the next `ingest` run, without `--remap`.
+
 ### Let the agent add companies
 
 With `--allow-ingest`, the agent checks coverage and, for a company or year that is missing,

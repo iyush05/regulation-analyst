@@ -1,6 +1,7 @@
 """Company ingestion flow with controlled discovery and HTTP. All values are synthetic."""
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -276,3 +277,17 @@ def test_oversized_report_is_reported_per_filing_not_fatal(tmp_path, paths):
     assert third["filings"][0]["status"] == "imported"
     assert "inbox_error" not in third["filings"][0]
     assert not saved.exists()
+
+
+def test_remap_into_another_folder_never_deletes_the_originals(tmp_path, paths):
+    store = Store(tmp_path / "db.sqlite3", readonly=False)
+    fy25 = report(tmp_path / "fy25.pdf").read_bytes()
+    first = ingest(store, "Synthetic", ["FY25"], provider=Discovery(), client=site(fy25), **paths)
+    (filing,) = first["filings"]
+    originals = [*filing["candidates"], filing["report"], filing["queue"]]
+    assert filing["queue"].endswith("synind-annual-report-fy2025-queue.json")
+
+    elsewhere = {**paths, "candidates": tmp_path / "elsewhere"}
+    again = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), remap=True, **elsewhere)
+    assert all(Path(p).is_file() for p in originals)
+    assert again["filings"][0]["candidates"][0].startswith(str(tmp_path / "elsewhere"))

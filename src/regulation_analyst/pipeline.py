@@ -339,12 +339,15 @@ def map_filings(
         if not item.get("snapshot_path") or (item.get("candidates") and not remap):
             continue
         # Remapping replaces generated candidates; the archived source PDF is untouched.
+        # Only files inside this run's output folder are removed: saved progress may point
+        # elsewhere, e.g. when a copied database is remapped into a different folder.
+        output = Path(candidates).expanduser().resolve()
         for stale in [
             *item.pop("candidates", []),
             item.pop("report", None),
             item.pop("queue", None),
         ]:
-            if stale:
+            if stale and Path(stale).expanduser().resolve().parent == output:
                 Path(stale).unlink(missing_ok=True)
         item.pop("map_error", None)
         item.pop("gate", None)
@@ -401,6 +404,15 @@ def gate_filings(store, planned, mapped_now, *, provider=None, budget=None, do_i
     for item in planned["items"]:
         if not item.get("candidates"):
             continue
+        missing = [p for p in [*item["candidates"], item["report"]] if not Path(p).is_file()]
+        if missing:
+            if item in pending:
+                raise ResearchError(
+                    "not_found",
+                    f"Candidate files for FY{item['fiscal_year']} are missing ({missing[0]}); "
+                    "re-run with --remap to regenerate them from the archived PDF",
+                )
+            continue  # Only used for corroboration; the gated facts are already imported.
         report = json.loads(Path(item["report"]).read_text())
         loaded[id(item)] = [
             (json.loads(Path(path).read_text()), extraction["extraction"])
@@ -447,13 +459,45 @@ def gate_filings(store, planned, mapped_now, *, provider=None, budget=None, do_i
                 summary["imported"] += imported["inserted"]
                 summary["already_imported"] += imported["skipped"]
                 summary["conflicts"] += imported["conflicts"]
-        path = Path(item["report"]).with_name(
-            Path(item["report"]).name.replace("-report", "-queue")
-        )
+        report_path = Path(item["report"])
+        path = report_path.with_name(report_path.name.removesuffix("-report.json") + "-queue.json")
         path.write_text(json.dumps(queue, indent=2, ensure_ascii=False) + "\n")
         item.update(gate=summary, queue=str(path))
         status = "review_required" if queue or not do_import else "done"
         store.record_job(planned["key"], key, "import", status, detail(item))
+
+
+def commentary_filings(store, planned, *, do_import=True, remap=False):
+    """Import verbatim MD&A passages from each archived report not yet processed."""
+    from .commentary import extract_commentary
+    from .models import Document as DocumentRecord
+
+    for item in planned["items"]:
+        if not item.get("candidates") or ("commentary" in item and not remap):
+            continue
+        # The imported document record is authoritative; the candidate file is regenerable.
+        document_id = f"{planned['company'].id}-annual-report-fy{item['fiscal_year']}"
+        try:
+            document = store.record("documents", document_id)
+        except ResearchError:
+            if not Path(item["candidates"][0]).is_file():
+                continue
+            candidate = json.loads(Path(item["candidates"][0]).read_text())
+            document = DocumentRecord.model_validate(candidate["bundle"]["documents"][0])
+        bundle, report = extract_commentary(item["snapshot_path"], planned["company"], document)
+        summary = {
+            "section_pages": [report["section_pages"][0], report["section_pages"][-1]]
+            if report["section_pages"]
+            else [],
+            "passages": report["passages"],
+            "imported": 0,
+        }
+        if bundle is not None and do_import:
+            summary["imported"] = import_new(store, bundle)["inserted_passages"]
+        item["commentary"] = summary
+        store.record_job(
+            planned["key"], item_key(item["fiscal_year"]), "import", "done", detail(item)
+        )
 
 
 def ingest(
@@ -516,6 +560,7 @@ def ingest(
         budget=budget,
         do_import=do_import,
     )
+    commentary_filings(store, planned, do_import=do_import, remap=remap)
     return {
         "company": planned["company"].model_dump(mode="json"),
         "domain": planned["domain"],

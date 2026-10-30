@@ -410,7 +410,7 @@ def gate(
 def import_new(store, bundle: Bundle) -> dict:
     """Import records not yet stored; identical ones are skipped and changed ones refused."""
     keep, skipped, conflicts = {}, 0, []
-    for table in ("companies", "documents", "evidence", "facts"):
+    for table in ("companies", "documents", "evidence", "facts", "passages"):
         keep[table] = []
         for item in getattr(bundle, table):
             try:
@@ -426,12 +426,12 @@ def import_new(store, bundle: Bundle) -> dict:
                 conflicts.append(item.id)
     refused = set(conflicts)
     facts = [f for f in keep["facts"] if f.id not in refused and f.evidence_id not in refused]
-    used = {f.evidence_id for f in facts}
+    passages = [p for p in keep["passages"] if p.id not in refused and p.evidence_id not in refused]
+    used = {f.evidence_id for f in facts} | {p.evidence_id for p in passages}
     evidence = [e for e in keep["evidence"] if e.id in used]
-    if any(d.id in refused for d in bundle.documents):
-        return {"inserted": 0, "skipped": skipped, "conflicts": conflicts}
-    if not facts:
-        return {"inserted": 0, "skipped": skipped, "conflicts": conflicts}
+    nothing = {"inserted": 0, "inserted_passages": 0, "skipped": skipped, "conflicts": conflicts}
+    if any(d.id in refused for d in bundle.documents) or not (facts or passages):
+        return nothing
     result = store.import_bundle(
         Bundle(
             description=bundle.description,
@@ -439,6 +439,12 @@ def import_new(store, bundle: Bundle) -> dict:
             documents=keep["documents"],
             evidence=evidence,
             facts=facts,
+            passages=passages,
         )
     )
-    return {"inserted": result["inserted"]["facts"], "skipped": skipped, "conflicts": conflicts}
+    return {
+        "inserted": result["inserted"]["facts"],
+        "inserted_passages": result["inserted"]["passages"],
+        "skipped": skipped,
+        "conflicts": conflicts,
+    }
