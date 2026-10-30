@@ -43,6 +43,10 @@ def parser():
     bench.add_argument("--only", nargs="+", help="Company IDs from the gold file")
     bench.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     bench.add_argument("--max-tokens", type=int, default=200_000, help="Per report")
+    check = commands.add_parser(
+        "check-model", help="Send one small request to the configured model and report the result"
+    )
+    check.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     api = commands.add_parser("api", help="Run the HTTP API for the web frontend")
     api.add_argument("--host", default="127.0.0.1")
     api.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
@@ -461,6 +465,30 @@ def main(argv=None) -> int:
                 for key in ("status", "artifact_directory", "source_sha256", "page_count")
             }
             payload["extracted_pages"] = len(artifact["pages"])
+        elif args.command == "check-model":
+            from pydantic import BaseModel as Schema
+
+            from .providers import UsageBudget, chat_provider
+
+            class Reply(Schema):
+                ok: bool
+
+            provider = chat_provider(args.model)
+            budget = UsageBudget(2000)
+            payload = {
+                "provider": os.environ.get("REGULATION_MODEL_PROVIDER", "openai"),
+                "model": args.model,
+                "region": getattr(provider, "region", None),
+            }
+            reply = provider.structured(
+                "Answer with ok set to true.",
+                [{"type": "input_text", "text": "Connectivity check."}],
+                Reply,
+                max_output_tokens=200,
+                timeout=60,
+                budget=budget,
+            )
+            payload |= {"status": "ok", "reply": reply.model_dump(), "usage": budget.usage}
         elif args.command == "benchmark-layout":
             from .benchmark import markdown, run_layout_benchmark
             from .providers import chat_provider

@@ -240,15 +240,31 @@ class BedrockProvider:
             response.raise_for_status()
             return response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            # Do not expose provider bodies, headers, or potentially sensitive input.
-            status = getattr(getattr(exc, "response", None), "status_code", None)
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
             raise ResearchError(
                 "not_found",
-                f"Model request failed ({type(exc).__name__}{f' {status}' if status else ''})",
+                f"Model request failed ({type(exc).__name__}{f' {status}' if status else ''})"
+                + self.aws_reason(response),
             ) from exc
         finally:
             if owned:
                 client.close()
+
+    def aws_reason(self, response) -> str:
+        """AWS's error type and message (e.g. AccessDeniedException), which say why a request
+        was refused. They never contain the key; it is removed regardless, and long text cut."""
+        if response is None:
+            return ""
+        kind = response.headers.get("x-amzn-errortype", "").split(":")[0]
+        try:
+            message = str(response.json().get("message") or response.json().get("Message") or "")
+        except ValueError:
+            message = ""
+        text = f"{kind}: {message}" if kind and message else kind or message
+        if self.key:
+            text = text.replace(self.key, "[key]")
+        return f": {text[:300]}" if text else ""
 
     @staticmethod
     def to_converse(messages: list) -> tuple[list, list]:

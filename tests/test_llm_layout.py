@@ -195,3 +195,26 @@ def test_scoring_separates_wrong_from_blocked_and_missing():
     queued = [{"metric": "eps_basic", "scope": "consolidated", "fiscal_year": 2025}]
     outcomes = {m: o["outcome"] for m, o in score_report(gold, accepted, queued).items()}
     assert outcomes == {"revenue": "correct", "profit_total": "wrong", "eps_basic": "queued"}
+
+
+class Refused:
+    identity = "controlled:refused"
+
+    def structured(self, *args, **kwargs):
+        raise ResearchError("not_found", "Model request failed (HTTPStatusError 403)")
+
+
+def test_auto_keeps_the_rules_result_when_the_model_fails(tmp_path):
+    # Rules miss core items in this report (no revenue label they know), so auto asks the model.
+    result = automap(
+        report_pdf(tmp_path / "ar.pdf"),
+        COMPANY,
+        DOCUMENT,
+        tmp_path / "x",
+        provider=Refused(),
+        layout="auto",
+    )
+    assert result["report"]["layout"] == "rules"
+    assert "403" in result["report"]["model_error"]
+    metrics = {f["metric"] for c in result["candidates"] for f in c["bundle"]["facts"]}
+    assert "total_income" in metrics and "revenue" not in metrics

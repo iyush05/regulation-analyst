@@ -610,9 +610,16 @@ def automap(
             rules = None  # Rules found nothing; the model may still read the layout.
         if rules is not None and (provider is None or core_covered(rules["report"])):
             return {**rules, "report": {**rules["report"], "layout": "rules"}}
-        model = automap(
-            pdf, company, document, output_dir, provider=provider, budget=budget, layout="llm"
-        )
+        try:
+            model = automap(
+                pdf, company, document, output_dir, provider=provider, budget=budget, layout="llm"
+            )
+        except ResearchError as exc:
+            if rules is None:
+                raise
+            # A failed model call never discards what the rules found.
+            report = {**rules["report"], "layout": "rules", "model_error": str(exc)[:300]}
+            return {**rules, "report": report}
         if rules is None:
             return {**model, "report": {**model["report"], "layout": "llm"}}
         better = mapped_count(model["report"]) > mapped_count(rules["report"])

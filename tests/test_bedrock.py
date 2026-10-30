@@ -186,3 +186,22 @@ def test_agent_runs_end_to_end_through_bedrock(service, tmp_path):
     second = requests[1]["body"]["messages"]
     assert second[-1]["content"][0]["toolResult"]["toolUseId"] == "t-get_table"
     assert json.loads(open(answer.data["run_log"]).read())["model"] == f"bedrock:{MODEL}"
+
+
+def test_refusals_explain_the_aws_reason_without_the_key():
+    def handler(request):
+        return httpx.Response(
+            403,
+            headers={"x-amzn-ErrorType": "AccessDeniedException:http://internal.amazon.com/"},
+            json={"message": "You don't have access to the model with the specified model ID. k-9"},
+        )
+
+    provider = BedrockProvider(
+        model=MODEL, api_key="k-9", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(ResearchError) as error:
+        provider.respond([{"role": "user", "content": "q"}], [], max_output_tokens=10, timeout=1)
+    message = str(error.value)
+    assert "403" in message
+    assert "AccessDeniedException: You don't have access to the model" in message
+    assert "k-9" not in message
