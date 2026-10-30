@@ -865,6 +865,19 @@ def run_agent(
                 tool_result = service.call(name, **kwargs).model_dump(mode="json")
                 step(status=tool_result["status"], summary=summarize_step(name, tool_result))
                 ledger.absorb(tool_result["data"])
+                if name == "check_coverage" and tool_result["data"].get("covered") is False:
+                    # Say why there is no answer instead of a generic missing-data gap.
+                    ledger.missing.append(
+                        {
+                            "reason": f"{kwargs['company']} is not in the database yet"
+                            + (
+                                ""
+                                if ingestor
+                                else "; allow adding missing companies (Add missing companies "
+                                "in the web app, --allow-ingest in the CLI) to import its reports"
+                            )
+                        }
+                    )
                 trace.append(
                     {
                         "iteration": iteration + 1,

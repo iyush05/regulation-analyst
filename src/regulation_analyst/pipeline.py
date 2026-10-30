@@ -644,7 +644,8 @@ def agent_ingestor(
                 missing.append(
                     {
                         "reason": f"FY{year} annual report could not be downloaded automatically: "
-                        f"save {filing['url']} into {result['inbox']} and ask again"
+                        f"download {filing['url']} yourself, upload it on the Companies page "
+                        f"(or save it into {result['inbox']}), then ask again"
                     }
                 )
             elif filing["status"] == "map_failed":

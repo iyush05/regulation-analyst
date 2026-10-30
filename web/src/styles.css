@@ -496,3 +496,11 @@ table {
   line-height: 1.6;
   margin-top: 0;
 }
+
+.notice {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  border-radius: 6px;
+}

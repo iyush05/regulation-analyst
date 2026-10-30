@@ -169,7 +169,8 @@ def test_blocked_download_becomes_a_specific_gap(setup, tmp_path):
         ingestor=ingestor(refused=(AR25,)),
     )
     assert result.status == "not_found"
-    assert "could not be downloaded automatically: save " + AR25 in result.data["answer"]
+    assert "could not be downloaded automatically: download " + AR25 in result.data["answer"]
+    assert "upload it on the Companies page" in result.data["answer"]
 
 
 def test_coverage_reports_years_and_trust(setup):
@@ -200,3 +201,22 @@ def test_ask_suggests_the_ingest_command(service):
         known_on=None,
     )
     assert 'regulation-analyst ingest "Infosys Limited" --years FY19' in found.data["answer"]
+
+
+def test_unknown_company_without_ingestion_says_how_to_add_it(setup, tmp_path):
+    database, _ = setup
+    service = ResearchService(Store(database))
+    model = Model(
+        service.store,
+        [
+            ("check_coverage", {"company": "Wipro", "years": ["FY25"]}),
+            ("finish", done(gaps=["missing_financial_data"])),
+        ],
+    )
+    result = run_agent(service, "What is Wipro's revenue in FY25?", model, log_dir=tmp_path)
+    assert result.status == "not_found"
+    assert (
+        "Wipro is not in the database yet; allow adding missing companies"
+        in (result.data["answer"])
+    )
+    assert "missing financial data" not in result.data["answer"]
