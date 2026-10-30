@@ -16,6 +16,7 @@ from .errors import ResearchError
 from .metrics import calculate
 from .models import Basis, Policy, Scope, Trust, year_number
 from .providers import strict_schema
+from .render import summarize
 from .store import canonical
 
 
@@ -315,6 +316,12 @@ class Ledger:
     def valid_ids(self) -> dict[str, list[str]]:
         return {field: sorted(getattr(self, pool)) for field, pool in self.POOLS.items()}
 
+    def company_name(self, company_id: str) -> str:
+        try:
+            return self.store.record("companies", company_id).short_name
+        except ResearchError:
+            return company_id
+
     def answer_text(self, chosen, narrative, selection: FinishArgs) -> str:
         from .render import Sources, assemble, bullets, name, year_table
 
@@ -393,8 +400,28 @@ class Ledger:
             if selection.assumed_years
             else []
         )
+        series: dict[tuple, dict] = {}
+        if chosen["calculation"]:
+            for c in chosen["calculation"]:
+                key = (c["inputs"][0]["company_id"], c["formula_id"], c["unit"])
+                series.setdefault(key, {})[calc_year(c)] = c["value"]
+        else:
+            for f in chosen["fact"]:
+                key = (f["company_id"], f["metric"], f["normalized_unit"])
+                series.setdefault(key, {})[f["fiscal_year"]] = f["value"]
+        cited_sources = [f["source"] for f in chosen["fact"]] + [
+            f["source"] for c in chosen["calculation"] for f in c["inputs"]
+        ]
+        paragraph = summarize(
+            [(self.company_name(c), m, u, v) for (c, m, u), v in series.items()],
+            automated=any(s["trust"] != "reviewed" for s in cited_sources),
+            warnings=bool(notes),
+            gaps=gaps,
+            commentary=bool(narrative),
+        )
         return assemble(
             [
+                ("", [paragraph]),
                 ("", [f"{sel.scope.capitalize()} · {sel.basis} · {sel.policy.replace('_', ' ')}"]),
                 ("", assumed),
                 ("Summary", year_table("Measure", measures, years, cited, True)),
@@ -460,15 +487,11 @@ class Ledger:
         return {
             "answer": self.answer_text(chosen, narrative, selection)
             if claims
-            else "No supported evidence found."
-            + (
-                ""
-                if not (self.missing or selection.gaps)
-                else " "
-                + "; ".join(
-                    [g["reason"] for g in self.missing]
-                    or [g.replace("_", " ") for g in selection.gaps]
-                )
+            else summarize(
+                [],
+                gaps=[g["reason"] for g in self.missing]
+                or [g.replace("_", " ") for g in selection.gaps]
+                or ["no supporting evidence was found"],
             ),
             "claims": claims,
             "sources": list(sources.values()),

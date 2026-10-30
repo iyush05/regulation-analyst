@@ -489,3 +489,10 @@ table {
     background: var(--accent);
   }
 }
+
+/* The plain-language summary that opens every answer. */
+.markdown > p:first-child {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin-top: 0;
+}

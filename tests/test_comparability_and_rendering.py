@@ -183,3 +183,36 @@ def test_calculated_measures_are_explained_not_reported_missing(tmp_path, synthe
         "depreciation_amortisation. Calculated by the system from reported figures"
     ) in rendered
     assert "Gaps" not in rendered
+
+
+def test_summary_paragraph_states_only_verified_values():
+    from regulation_analyst.render import summarize
+
+    text = summarize(
+        [
+            ("Infosys", "net_margin.v1", "percent", {2023: "16.42", 2024: "17.07", 2025: "16.39"}),
+            ("Tata Motors", "debt_to_equity", "times", {2024: "1.16", 2025: "0.538"}),
+            ("Infosys", "revenue", "INR_crore", {2025: "162990"}),
+        ],
+        automated=True,
+        warnings=True,
+        gaps=["No FY2025 borrowings"],
+    )
+    assert text == (
+        "Infosys' net margin fell from 16.42% in FY23 to 16.39% in FY25 (-0.03 pp), passing "
+        "through 17.07% in FY24. Tata Motors' debt-to-equity ratio fell from 1.16x in FY24 to "
+        "0.54x in FY25 (-0.62x). Infosys' revenue was ₹1,62,990 cr in FY25. The figures come "
+        "from automated extraction and have not been reviewed by a person. Some figures are not "
+        "directly comparable; see Warnings. Some requested information is not available; see "
+        "Gaps."
+    )
+    assert summarize([], gaps=["no annual report found"]) == (
+        "This could not be answered from the available data: no annual report found."
+    )
+
+
+def test_answers_open_with_the_summary(restated):
+    answer = restated.answer_question("alpha net margin change FY24 to FY25").data["answer"]
+    first = answer.split("\n\n")[0]
+    assert first.startswith("Synthetic Alpha's net margin rose from 10.00% in FY24 to 11.00%")
+    assert "not been reviewed by a person" in first and "see Warnings" in first

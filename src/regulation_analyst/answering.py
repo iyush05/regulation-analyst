@@ -5,7 +5,7 @@ import re
 from .errors import ResearchError
 from .metrics import DERIVED_METRICS, calculate
 from .models import REPORTED_METRICS
-from .render import Sources, assemble, bullets, name, value_text, year_table
+from .render import Sources, assemble, bullets, name, summarize, value_text, year_table
 
 ALIASES = {
     "operating_margin": ["operating margin", "operating margins"],
@@ -359,8 +359,22 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
         if calculations
         else []
     )
+    names = {c.id: c.short_name for c in companies}
+    series: dict[tuple, dict] = {}
+    for row in rows:
+        series.setdefault((row["company_id"], metric, row["unit"]), {})[row["fiscal_year"]] = row[
+            "value"
+        ]
+    paragraph = summarize(
+        [(names.get(c, c), m, u, v) for (c, m, u), v in series.items()],
+        automated=any(f["source"]["trust"] != "reviewed" for row in rows for f in row["facts"]),
+        warnings=bool(notes),
+        gaps=[m["reason"] for m in missing],
+        commentary=bool(commentary),
+    )
     answer_text = assemble(
         [
+            ("", [paragraph]),
             ("", [f"{name(metric).capitalize()} · {scope} · {basis} · {name(policy)}"]),
             ("", year_table("Measure", table, years, cited, False)),
             ("Change", change_lines),
