@@ -1,0 +1,16 @@
+{
+  "description": "FY2025 annual reports of listed non-financial companies for measuring statement extraction across layouts. URLs are official company domains.",
+  "reports": [
+    {"company": "Infosys Limited", "id": "infosys", "domain": "infosys.com", "url": "https://www.infosys.com/investors/reports-filings/annual-report/annual/documents/infosys-ar-25.pdf"},
+    {"company": "Tata Motors Limited", "id": "tatamotors", "domain": "tatamotors.com", "url": "https://www.tatamotors.com/wp-content/uploads/2024/05/tata-motor-IAR-2024-25.pdf"},
+    {"company": "Wipro Limited", "id": "wipro", "domain": "wipro.com", "url": "https://www.wipro.com/content/dam/nexus/en/investor/annual-reports/2024-2025/Integrated-annual-report-2024-25.pdf"},
+    {"company": "Sun Pharmaceutical Industries Limited", "id": "sunpharma", "domain": "sunpharma.com", "url": "https://sunpharma.com/wp-content/uploads/2025/07/SPIL-Annual-Report-2024-25.pdf"},
+    {"company": "Tata Steel Limited", "id": "tatasteel", "domain": "tatasteel.com", "url": "https://www.tatasteel.com/investors/integrated-report-2024-25/pdf/fy25-integratedreport.pdf"},
+    {"company": "HCL Technologies Limited", "id": "hcltech", "domain": "hcltech.com", "url": "https://www.hcltech.com/sites/default/files/document/open/annual-report/2025-08/Annual-Report-2024-25_0.pdf"},
+    {"company": "UltraTech Cement Limited", "id": "ultratech", "domain": "ultratechcement.com", "url": "https://www.ultratechcement.com/content/dam/ultratechcementwebsite/pdf/financials/annual-reports/integrated-and-sustainability-report-2024-25-single-page-view.pdf"},
+    {"company": "Titan Company Limited", "id": "titan", "domain": "titancompany.in", "url": "https://www.titancompany.in/sites/default/files/2025-07/Titan%20AR%202024-25%20%281%29%20%281%29.pdf"},
+    {"company": "Cipla Limited", "id": "cipla", "domain": "cipla.com", "url": "https://www.cipla.com/sites/default/files/Cipla-AR-2024-25.pdf"},
+    {"company": "Bharti Airtel Limited", "id": "airtel", "domain": "airtel.in", "url": "https://www.airtel.in/airtel-annual-report-2024-25/pdf/Bharti%20Airtel%20IAR%202024-25.pdf"},
+    {"company": "Hindalco Industries Limited", "id": "hindalco", "domain": "hindalco.com", "url": "https://www.hindalco.com/flip-book-IR-2024-25/assets/pdf/Financial-Statements.pdf"}
+  ]
+}

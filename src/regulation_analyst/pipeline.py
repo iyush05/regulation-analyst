@@ -344,7 +344,15 @@ def take_from_inbox(store, planned, inbox, archive, max_bytes=MAX_REPORT_BYTES) 
 
 
 def map_filings(
-    store, planned, extractions, candidates, *, provider=None, budget=None, remap=False
+    store,
+    planned,
+    extractions,
+    candidates,
+    *,
+    provider=None,
+    budget=None,
+    remap=False,
+    layout="rules",
 ):
     results = []
     for item in planned["items"]:
@@ -381,6 +389,7 @@ def map_filings(
                 extractions,
                 provider=provider,
                 budget=budget,
+                layout=layout,
             )
         except ResearchError as exc:
             item["map_error"] = str(exc)
@@ -536,6 +545,7 @@ def ingest(
     download_seconds=DOWNLOAD_SECONDS,
     do_import=True,
     llm_resolve=False,
+    layout="rules",
 ) -> dict:
     wanted = sorted({year_number(y) for y in years})
     if not wanted or len(wanted) > 10:
@@ -563,9 +573,10 @@ def ingest(
         planned,
         extractions,
         candidates,
-        provider=provider if llm_mapping else None,
+        provider=provider if (llm_mapping or layout != "rules") else None,
         budget=budget,
         remap=remap,
+        layout=layout if provider is not None else "rules",
     )
     gate_filings(
         store,

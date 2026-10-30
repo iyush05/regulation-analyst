@@ -1,0 +1,329 @@
+{
+ "description": "Gold FY2025 consolidated Ind AS figures for the layout benchmark, read from each report's raw page text independently of the extractor. Values are as printed, in the printed unit. Null means no single printed line exists for that metric; it is not scored.",
+ "label_source": "assistant-read from page text; human spot-check pending",
+ "metrics": [
+  "revenue",
+  "total_income",
+  "profit_before_tax",
+  "profit_total",
+  "profit_owners",
+  "eps_basic",
+  "total_assets",
+  "equity_owners"
+ ],
+ "reports": [
+  {
+   "id": "infosys",
+   "company": "Infosys Limited",
+   "url": "https://www.infosys.com/investors/reports-filings/annual-report/annual/documents/infosys-ar-25.pdf",
+   "domain": "infosys.com",
+   "sha256": "a2b9acdfbe79586ffdbe1780c4f14e5b2630743a4c81ee626f812f4c2fff1b44",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     276,
+     277
+    ],
+    "balance_sheet": [
+     274,
+     275
+    ]
+   },
+   "values": {
+    "revenue": "162,990",
+    "total_income": "166,590",
+    "profit_before_tax": "37,608",
+    "profit_total": "26,750",
+    "profit_owners": "26,713",
+    "eps_basic": "64.50",
+    "total_assets": "1,48,903",
+    "equity_owners": "95,818"
+   }
+  },
+  {
+   "id": "tatamotors",
+   "company": "Tata Motors Limited",
+   "url": "https://www.tatamotors.com/wp-content/uploads/2024/05/tata-motor-IAR-2024-25.pdf",
+   "domain": "tatamotors.com",
+   "sha256": "5e90978857f304a9f08b5eade121e14256756d4c8db0f87cf964f54d512ce360",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     313,
+     314
+    ],
+    "balance_sheet": [
+     312
+    ]
+   },
+   "values": {
+    "revenue": "4,39,695",
+    "total_income": "4,45,939",
+    "profit_before_tax": null,
+    "profit_total": "28,149",
+    "profit_owners": "27,830",
+    "eps_basic": "78.80",
+    "total_assets": "3,78,642",
+    "equity_owners": "1,16,144"
+   },
+   "note": "No whole-company profit before tax line (continuing and discontinued operations are reported separately). EPS is the continuing-and-discontinued figure; 65.01 is continuing only."
+  },
+  {
+   "id": "wipro",
+   "company": "Wipro Limited",
+   "url": "https://www.wipro.com/content/dam/nexus/en/investor/annual-reports/2024-2025/Integrated-annual-report-2024-25.pdf",
+   "domain": "wipro.com",
+   "sha256": "3f1869fbac2da58b369bfc192bf47470b59e804e4105c1be6226c5a3edd6edaf",
+   "fiscal_year": 2025,
+   "unit": "INR_million",
+   "pages": {
+    "profit_loss": [
+     272,
+     273
+    ],
+    "balance_sheet": [
+     270,
+     271
+    ]
+   },
+   "values": {
+    "revenue": "890,884",
+    "total_income": "929,724",
+    "profit_before_tax": "174,957",
+    "profit_total": "132,180",
+    "profit_owners": "131,354",
+    "eps_basic": "12.56",
+    "total_assets": "1,281,852",
+    "equity_owners": "823,641"
+   }
+  },
+  {
+   "id": "sunpharma",
+   "company": "Sun Pharmaceutical Industries Limited",
+   "url": "https://sunpharma.com/wp-content/uploads/2025/07/SPIL-Annual-Report-2024-25.pdf",
+   "domain": "sunpharma.com",
+   "sha256": "7cf1d4f4697c0d5fcade96cb612e1783bf886b585a6aff97efed59ab625a3eeb",
+   "fiscal_year": 2025,
+   "unit": "INR_million",
+   "pages": {
+    "profit_loss": [
+     226,
+     227
+    ],
+    "balance_sheet": [
+     224,
+     225
+    ]
+   },
+   "values": {
+    "revenue": "525,784.4",
+    "total_income": "545,434.8",
+    "profit_before_tax": "137,521.3",
+    "profit_total": "109,647.5",
+    "profit_owners": "109,290.4",
+    "eps_basic": "45.6",
+    "total_assets": "921,005.8",
+    "equity_owners": "722,180.2"
+   },
+   "note": "profit_total is 'Profit for the year before non-controlling interests' (after share of associates); 109,801.0 is before that share."
+  },
+  {
+   "id": "tatasteel",
+   "company": "Tata Steel Limited",
+   "url": "https://www.tatasteel.com/investors/integrated-report-2024-25/pdf/fy25-integratedreport.pdf",
+   "domain": "tatasteel.com",
+   "sha256": "362b10b5c61bcc9a967c9b4744181f4f14e037a0d7f73e4ffac3405b9373a351",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     406,
+     407
+    ],
+    "balance_sheet": [
+     404,
+     405
+    ]
+   },
+   "values": {
+    "revenue": "2,18,542.51",
+    "total_income": "2,20,083.04",
+    "profit_before_tax": "8,412.87",
+    "profit_total": "3,173.78",
+    "profit_owners": "3,420.51",
+    "eps_basic": "2.74",
+    "total_assets": "2,79,394.80",
+    "equity_owners": "91,169.63"
+   }
+  },
+  {
+   "id": "hcltech",
+   "company": "HCL Technologies Limited",
+   "url": "https://www.hcltech.com/sites/default/files/document/open/annual-report/2025-08/Annual-Report-2024-25_0.pdf",
+   "domain": "hcltech.com",
+   "sha256": "9b92318dceffd61054f3d190bcfd9aa5311db94e38ae7eb72186821188295343",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     337,
+     338
+    ],
+    "balance_sheet": [
+     335
+    ]
+   },
+   "values": {
+    "revenue": "117,055",
+    "total_income": "119,540",
+    "profit_before_tax": "23,261",
+    "profit_total": "17,399",
+    "profit_owners": "17,390",
+    "eps_basic": "64.16",
+    "total_assets": "105,544",
+    "equity_owners": "69,655"
+   }
+  },
+  {
+   "id": "ultratech",
+   "company": "UltraTech Cement Limited",
+   "url": "https://www.ultratechcement.com/content/dam/ultratechcementwebsite/pdf/financials/annual-reports/integrated-and-sustainability-report-2024-25-single-page-view.pdf",
+   "domain": "ultratechcement.com",
+   "sha256": "5a69a92e6cdd1c2be57f02549c5772218f922e58f3345a6a55749e146719f9f6",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     417
+    ],
+    "balance_sheet": [
+     416
+    ]
+   },
+   "values": {
+    "revenue": "75,955.13",
+    "total_income": "76,699.30",
+    "profit_before_tax": "7,528.13",
+    "profit_total": "6,039.64",
+    "profit_owners": "6,039.11",
+    "eps_basic": "205.30",
+    "total_assets": "1,33,697.15",
+    "equity_owners": null
+   },
+   "note": "No single line for equity attributable to owners (only share capital and other equity)."
+  },
+  {
+   "id": "titan",
+   "company": "Titan Company Limited",
+   "url": "https://www.titancompany.in/sites/default/files/2025-07/Titan%20AR%202024-25%20%281%29%20%281%29.pdf",
+   "domain": "titancompany.in",
+   "sha256": "77ed6de067f6569219d13f28427af462e41a737730909dd2ffedb7b264374a4a",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     367
+    ],
+    "balance_sheet": [
+     366
+    ]
+   },
+   "values": {
+    "revenue": "60,456",
+    "total_income": "60,942",
+    "profit_before_tax": "4,535",
+    "profit_total": "3,337",
+    "profit_owners": "3,337",
+    "eps_basic": "37.62",
+    "total_assets": "40,647",
+    "equity_owners": "11,624"
+   }
+  },
+  {
+   "id": "cipla",
+   "company": "Cipla Limited",
+   "url": "https://www.cipla.com/sites/default/files/Cipla-AR-2024-25.pdf",
+   "domain": "cipla.com",
+   "sha256": "b77c5d28ed285ea6f40aca2d6490fb6f17a6550f1a8f29851a1451d5937a987a",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     331
+    ],
+    "balance_sheet": [
+     330
+    ]
+   },
+   "values": {
+    "revenue": "27,547.62",
+    "total_income": "28,409.49",
+    "profit_before_tax": "6,820.81",
+    "profit_total": "5,269.20",
+    "profit_owners": "5,272.52",
+    "eps_basic": "65.29",
+    "total_assets": "37,387.04",
+    "equity_owners": "31,193.45"
+   },
+   "note": "Profit before tax is 'Profit before tax and share of associates'; profit_total is 'Net profit for the year'."
+  },
+  {
+   "id": "airtel",
+   "company": "Bharti Airtel Limited",
+   "url": "https://www.airtel.in/airtel-annual-report-2024-25/pdf/Bharti%20Airtel%20IAR%202024-25.pdf",
+   "domain": "airtel.in",
+   "sha256": "b8cb426ebaec8e89738818e8436ce763d9729cf1bc2ecf8b72151f56fdf5ae2b",
+   "fiscal_year": 2025,
+   "unit": "INR_million",
+   "pages": {
+    "profit_loss": [
+     199
+    ],
+    "balance_sheet": [
+     199
+    ]
+   },
+   "values": {
+    "revenue": "1,729,852",
+    "total_income": null,
+    "profit_before_tax": "383,985",
+    "profit_total": "374,813",
+    "profit_owners": "335,561",
+    "eps_basic": "58.00",
+    "total_assets": "5,143,604",
+    "equity_owners": "1,136,719"
+   },
+   "note": "Balance sheet and P&L share one page side by side. No total income line was identified."
+  },
+  {
+   "id": "hindalco",
+   "company": "Hindalco Industries Limited",
+   "url": "https://www.hindalco.com/flip-book-IR-2024-25/assets/pdf/Financial-Statements.pdf",
+   "domain": "hindalco.com",
+   "sha256": "bb8b6c23752133092de8e4784d8e1f5983f70771e7fcc868b9aa3c62e460d641",
+   "fiscal_year": 2025,
+   "unit": "INR_crore",
+   "pages": {
+    "profit_loss": [
+     14
+    ],
+    "balance_sheet": [
+     13
+    ]
+   },
+   "values": {
+    "revenue": "238,496",
+    "total_income": "241,204",
+    "profit_before_tax": "22,337",
+    "profit_total": "16,002",
+    "profit_owners": "16,001",
+    "eps_basic": "72.05",
+    "total_assets": null,
+    "equity_owners": "123,709"
+   },
+   "note": "Statements are laid out side by side; total assets was not identified as its own line."
+  }
+ ]
+}

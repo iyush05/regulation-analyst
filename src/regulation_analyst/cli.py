@@ -33,6 +33,16 @@ def parser():
     )
     commands.add_parser("coverage", help="Inspect reviewed company coverage")
     commands.add_parser("metrics", help="Inspect supported metric definitions")
+    bench = commands.add_parser(
+        "benchmark-layout", help="Score statement extraction against gold figures per company"
+    )
+    bench.add_argument("--layout", choices=["rules", "llm", "auto"], default="rules")
+    bench.add_argument("--gold", type=Path, default=Path("benchmarks/layout-gold.json"))
+    bench.add_argument("--archive", type=Path, default=Path("data/benchmark/sources"))
+    bench.add_argument("--work", type=Path, default=Path("artifacts/layout-benchmark"))
+    bench.add_argument("--only", nargs="+", help="Company IDs from the gold file")
+    bench.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
+    bench.add_argument("--max-tokens", type=int, default=200_000, help="Per report")
     api = commands.add_parser("api", help="Run the HTTP API for the web frontend")
     api.add_argument("--host", default="127.0.0.1")
     api.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
@@ -186,6 +196,13 @@ def parser():
     )
     ingest.add_argument(
         "--no-import", action="store_true", help="Run validation gates without importing"
+    )
+    ingest.add_argument(
+        "--layout",
+        choices=["rules", "llm", "auto"],
+        default="rules",
+        help="How statement layouts are read: label rules, the model (verified), or rules "
+        "with the model when core items are missing",
     )
     ingest.add_argument(
         "--llm-resolve",
@@ -385,6 +402,7 @@ def main(argv=None) -> int:
             needs_model = (
                 args.llm_map
                 or args.llm_resolve
+                or args.layout != "rules"
                 or set(urls) != {year_number(y) for y in args.years}
             )
             provider = (
@@ -411,6 +429,7 @@ def main(argv=None) -> int:
                 remap=args.remap,
                 do_import=not args.no_import,
                 llm_resolve=args.llm_resolve and provider is not None,
+                layout=args.layout,
             )
             waiting = [f for f in result["filings"] if f["status"] == "needs_manual_pdf"]
             done = all(f["status"] == "imported" for f in result["filings"])
@@ -444,6 +463,26 @@ def main(argv=None) -> int:
                 for key in ("status", "artifact_directory", "source_sha256", "page_count")
             }
             payload["extracted_pages"] = len(artifact["pages"])
+        elif args.command == "benchmark-layout":
+            from .benchmark import markdown, run_layout_benchmark
+            from .providers import OpenAIProvider
+
+            provider = OpenAIProvider(model=args.model) if args.layout != "rules" else None
+            report = run_layout_benchmark(
+                args.gold,
+                args.archive,
+                args.layout,
+                args.work,
+                provider=provider,
+                max_tokens=args.max_tokens,
+                only=args.only,
+            )
+            args.work.mkdir(parents=True, exist_ok=True)
+            target = args.work / f"results-{args.layout}"
+            target.with_suffix(".json").write_text(json.dumps(report, indent=1) + "\n")
+            target.with_suffix(".md").write_text(markdown(report))
+            print(markdown(report))
+            return 0
         elif args.command == "api":
             from .api import Settings, create_app
 

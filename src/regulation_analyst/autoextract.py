@@ -6,6 +6,7 @@ then read from the parsed cell by `review.build_candidates`, and candidates stil
 validation gates or human review before import.
 """
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -449,8 +450,47 @@ def llm_rows(provider, statement, rows, missing, used, budget=None) -> dict[str,
     return chosen
 
 
-def plan_tables(artifacts: dict, located, company: Company, provider=None, budget=None):
-    """Per page, use whichever table-detection strategy recognises more line items."""
+def rules_choice(item, options, company, claimed, provider=None, budget=None):
+    """Label rules pick the table and rows; optionally the model fills rows the rules missed.
+
+    `options` holds (strategy, table) pairs on the page. Returns (strategy, table, matched,
+    methods, columns) with columns None when the shared year-column rules should decide.
+    """
+    ranked = []
+    for strategy, table in options:
+        matched = classify(item["statement"], table["rows"])
+        dated = bool(matched) and bool(
+            year_columns(table["rows"], matched, table.get("headers"), company.fiscal_end_month)
+        )
+        ranked.append(((dated, len(matched)), strategy, matched, table))
+    if not ranked or not max(ranked, key=lambda option: option[0])[0][1]:
+        return None
+    # A table whose year columns are identifiable wins; then more line items; ties keep
+    # the earlier strategy (ruled lines first, which have the most reliable cell boxes).
+    _, strategy, matched, table = max(ranked, key=lambda option: option[0])
+    methods = {metric: {"method": "rule", "reason": "label rule"} for metric in matched}
+    missing = [
+        m
+        for m in STATEMENT_METRICS[item["statement"]]
+        if m not in matched and (item["scope"], m) not in claimed
+    ]
+    if provider and missing:
+        used = {}
+        for metric, row in matched.items():
+            used.setdefault(row, set()).add(metric)
+        for metric, choice in llm_rows(
+            provider, item["statement"], table["rows"], missing, used, budget
+        ).items():
+            matched[metric] = choice["row"]
+            methods[metric] = {"method": "llm", "reason": choice["reason"]}
+    return strategy, table, matched, methods, None
+
+
+def plan_tables(
+    artifacts: dict, located, company: Company, provider=None, budget=None, choose=None
+):
+    """Per page, `choose` (label rules by default) picks the table, rows, and year columns;
+    units, continuation pages, and one value per metric and scope are handled here."""
     pages = {
         strategy: {page["pdf_page"]: page for page in artifact["pages"]}
         for strategy, artifact in artifacts.items()
@@ -461,38 +501,17 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
         if item["scope"] is None:
             issues.append({"page": item["page"], "issue": "scope_unknown"})
             continue
-        options = []
-        for strategy in artifacts:
-            for table in pages[strategy].get(item["page"], {}).get("tables", []):
-                matched = classify(item["statement"], table["rows"])
-                dated = bool(matched) and bool(
-                    year_columns(
-                        table["rows"], matched, table.get("headers"), company.fiscal_end_month
-                    )
-                )
-                options.append(((dated, len(matched)), strategy, matched, table))
-        if not options or not max(options, key=lambda option: option[0])[0][1]:
+        options = [
+            (strategy, table)
+            for strategy in artifacts
+            for table in pages[strategy].get(item["page"], {}).get("tables", [])
+        ]
+        chosen = (choose or rules_choice)(item, options, company, claimed, provider, budget)
+        if chosen is None:
             issues.append({"page": item["page"], "issue": "no_statement_table"})
             continue
-        # A table whose year columns are identifiable wins; then more line items; ties keep
-        # the earlier strategy (ruled lines first, which have the most reliable cell boxes).
-        _, strategy, matched, table = max(options, key=lambda option: option[0])
+        strategy, table, matched, methods, chosen_columns = chosen
         page = pages[strategy][item["page"]]
-        methods = {metric: {"method": "rule", "reason": "label rule"} for metric in matched}
-        missing = [
-            m
-            for m in STATEMENT_METRICS[item["statement"]]
-            if m not in matched and (item["scope"], m) not in claimed
-        ]
-        if provider and missing:
-            used = {}
-            for metric, row in matched.items():
-                used.setdefault(row, set()).add(metric)
-            for metric, choice in llm_rows(
-                provider, item["statement"], table["rows"], missing, used, budget
-            ).items():
-                matched[metric] = choice["row"]
-                methods[metric] = {"method": "llm", "reason": choice["reason"]}
         matched = {m: r for m, r in matched.items() if (item["scope"], m) not in claimed}
         if not matched:
             continue
@@ -509,7 +528,7 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
             "evidence_page": unit_page or item["page"],
             "last_page": item["page"],
         }
-        columns = year_columns(
+        columns = chosen_columns or year_columns(
             table["rows"], matched, table.get("headers"), company.fiscal_end_month
         )
         if not columns:
@@ -554,6 +573,18 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
     return tables, provenance, issues
 
 
+CORE = ("revenue", "profit_before_tax", "profit_total", "total_assets", "equity_owners")
+
+
+def mapped_count(report) -> int:
+    return len({p["metric"] for p in report["provenance"] if p["scope"] == "consolidated"})
+
+
+def core_covered(report) -> bool:
+    mapped = {p["metric"] for p in report["provenance"] if p["scope"] == "consolidated"}
+    return all(metric in mapped for metric in CORE)
+
+
 def automap(
     pdf: str | Path,
     company: Company,
@@ -562,9 +593,74 @@ def automap(
     *,
     provider=None,
     budget=None,
+    layout: str = "rules",
 ) -> dict:
-    """Locate statements, extract their pages, and build review candidates with provenance."""
-    location = locate_statements(pdf)
+    """Locate statements, extract their pages, and build review candidates with provenance.
+
+    layout "rules" uses label rules (the model only fills missing rows when a provider is
+    given); "llm" lets the model choose pages, rows, and year columns, each verified by code;
+    "auto" uses rules and falls back to "llm" when core consolidated items are missing.
+    """
+    if layout == "auto":
+        try:
+            rules = automap(pdf, company, document, output_dir, layout="rules")
+        except ResearchError:
+            if provider is None:
+                raise
+            rules = None  # Rules found nothing; the model may still read the layout.
+        if rules is not None and (provider is None or core_covered(rules["report"])):
+            return {**rules, "report": {**rules["report"], "layout": "rules"}}
+        model = automap(
+            pdf, company, document, output_dir, provider=provider, budget=budget, layout="llm"
+        )
+        if rules is None:
+            return {**model, "report": {**model["report"], "layout": "llm"}}
+        better = mapped_count(model["report"]) > mapped_count(rules["report"])
+        chosen, name = (model, "llm") if better else (rules, "rules")
+        return {**chosen, "report": {**chosen["report"], "layout": name}}
+    if layout not in ("rules", "llm"):
+        raise ResearchError("invalid_request", "layout must be rules, llm, or auto")
+    if layout == "llm" and provider is None:
+        raise ResearchError("invalid_request", "The llm layout needs a configured model")
+    choose, location = None, None
+    if layout == "llm":
+        import pymupdf
+
+        from . import llm_layout
+
+        digest = hashlib.sha256(Path(pdf).read_bytes()).hexdigest()
+        cache = llm_layout.Cache(Path(output_dir), digest, getattr(provider, "identity", "model"))
+        with pymupdf.open(Path(pdf)) as opened:
+            pages_found = llm_layout.locate(opened, provider, cache, budget)
+            location = {
+                "pages": pages_found,
+                "scanned_pages": [
+                    n for n, page in enumerate(opened, start=1) if not page.get_text().strip()
+                ],
+                "page_count": len(opened),
+            }
+
+        def choose(item, options, company, claimed, provider, budget):
+            picked = llm_layout.choose_table(options)
+            if picked is None:
+                return None
+            strategy, table = picked
+            read = llm_layout.read_table(
+                provider,
+                cache,
+                item["statement"],
+                item["page"],
+                strategy,
+                table,
+                company.fiscal_end_month,
+                budget,
+            )
+            if read is None:
+                return None
+            methods = {m: {"method": "llm", "reason": "model layout"} for m in read["matched"]}
+            return strategy, table, read["matched"], methods, read["columns"]
+
+    location = location if location and location["pages"] else locate_statements(pdf)
     located = {
         "located": location["pages"],
         "scanned_pages": location["scanned_pages"],
@@ -583,7 +679,7 @@ def automap(
         for strategy in ("lines", "rows", "text")
     }
     tables, provenance, issues = plan_tables(
-        artifacts, location["pages"], company, provider, budget
+        artifacts, location["pages"], company, provider, budget, choose
     )
     if not any(tables.values()):
         raise ResearchError(
