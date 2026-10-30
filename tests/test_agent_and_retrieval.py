@@ -371,3 +371,37 @@ def test_malformed_assumed_years_are_rejected(service, tmp_path):
     bad = ("finish", finish(assumed_years=["last year"]))
     answer = run_agent(service, "Infosys revenue FY25", ScriptedProvider([bad]), log_dir=tmp_path)
     assert answer.status == "invalid_request"
+
+
+def test_agent_reports_each_step_as_it_happens(service, tmp_path):
+    facts = ["infosys-indas-2025-operating_profit", "infosys-indas-2025-revenue"]
+    margin = calculate(service.store, "operating_margin", facts)
+    table = {"company": "Infosys", "years": ["FY25"], "metrics": ["operating_profit", "revenue"]}
+    provider = ScriptedProvider(
+        [
+            ("get_table", table),
+            ("calculate", {"formula": "operating_margin", "fact_ids": facts}),
+            ("finish", finish(calculation_ids=[margin["id"]])),
+        ]
+    )
+    snapshots = []
+    answer = run_agent(
+        service,
+        "Infosys operating margin FY25",
+        provider,
+        log_dir=tmp_path,
+        on_progress=snapshots.append,
+    )
+    assert answer.status == "ok"
+    final = snapshots[-1]
+    assert [(s["label"], s["status"], s.get("summary")) for s in final if s["kind"] == "tool"] == [
+        ("Fetching operating_profit, revenue for Infosys FY25", "ok", "2 figures found"),
+        ("Calculating operating margin", "ok", "21.12 percent"),
+        ("Writing the answer", "done", ""),
+    ]
+    assert all(s["status"] != "running" for s in final)
+    # Progress is published while working, not only at the end.
+    assert any(s[-1]["status"] == "running" for s in snapshots)
+    assert len(snapshots) >= 6
+    log = json.loads(open(answer.data["run_log"]).read())
+    assert log["steps"] == final

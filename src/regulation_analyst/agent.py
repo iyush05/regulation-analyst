@@ -485,6 +485,66 @@ class Ledger:
         }
 
 
+def _years(values) -> str:
+    try:
+        return ", ".join(f"FY{year_number(v) % 100:02d}" for v in values or [])
+    except ValueError:
+        return ", ".join(map(str, values or []))
+
+
+def describe_step(name: str, args: dict) -> str:
+    """A plain-language label for a tool call, shown while the agent works."""
+    company, years = args.get("company", ""), _years(args.get("years"))
+    labels = {
+        "list_companies": "Checking which companies are covered",
+        "list_metrics": "Reading metric definitions and formulas",
+        "check_coverage": f"Checking available years for {company}",
+        "get_table": f"Fetching {', '.join(args.get('metrics') or [])} for {company} {years}",
+        "calculate": f"Calculating {str(args.get('formula', '')).replace('_', ' ')}",
+        "compare_companies": f"Comparing {args.get('metric', '')} across "
+        f"{', '.join(args.get('companies') or [])} {years}",
+        "search_filings": f"Searching filings for “{args.get('query', '')}”",
+        "search_regulations": f"Searching regulations in force on {args.get('as_of', '')}",
+        "get_source": "Opening a cited source",
+        "ingest_company": f"Adding {company} {years}: finding, downloading, checking, "
+        "and importing reports (can take minutes)",
+        "finish": "Writing the answer",
+    }
+    return labels.get(name, name.replace("_", " ")).strip()
+
+
+def summarize_step(name: str, result: dict) -> str:
+    """A short outcome for a finished tool call, without restating whole tool results."""
+    data, status = result.get("data") or {}, result.get("status", "")
+    if status in ("invalid_request", "ambiguous", "out_of_scope"):
+        return result.get("message", status)[:160]
+    if name == "get_table":
+        found, missing = len(data.get("facts") or []), len(data.get("missing") or [])
+        text = f"{found} figure{'s' * (found != 1)} found"
+        if missing:
+            text += f", {missing} missing"
+        if data.get("available_years") and missing:
+            text += f" (available: {_years(data['available_years'])})"
+        return text
+    if name == "calculate" and data.get("calculation"):
+        calc = data["calculation"]
+        return f"{calc['display_value']} {calc['unit'].replace('_', ' ')}"
+    if name == "check_coverage":
+        if not data.get("covered", True):
+            return "not in the corpus"
+        return f"years available: {_years(sorted(data.get('years') or {})) or 'none'}"
+    if name in ("search_filings", "search_regulations"):
+        hits = len(data.get("passages") or data.get("provisions") or [])
+        return f"{hits} result{'s' * (hits != 1)}"
+    if name == "compare_companies":
+        return f"{len(data.get('rows') or [])} values, {len(data.get('missing') or [])} missing"
+    if name == "ingest_company":
+        return f"{data.get('imported', 0)} figures imported" + (
+            f", {len(data['missing'])} problems" if data.get("missing") else ""
+        )
+    return status
+
+
 def run_agent(
     service,
     question: str,
@@ -494,10 +554,26 @@ def run_agent(
     log_dir: str | Path = "artifacts/runs",
     selection: Selection | None = None,
     ingestor=None,
+    on_progress=None,
 ):
     """`ingestor(company, years) -> result dict` enables ingest_company; time spent ingesting
-    is excluded from the agent's own time budget, and its model usage is logged separately."""
+    is excluded from the agent's own time budget, and its model usage is logged separately.
+    `on_progress(steps)` receives the step list each time a step starts or finishes."""
     budgets, selection = budgets or Budgets(), selection or Selection()
+    steps: list[dict] = []
+
+    def step(**event):
+        """Start a step, closing any still running; with no label, update the current one."""
+        if "label" in event:
+            for previous in steps:
+                if previous["status"] == "running":
+                    previous["status"] = "done"
+            steps.append({"status": "running", "started_at": time.time(), **event})
+        elif steps:
+            steps[-1].update(event, finished_at=time.time())
+        if on_progress:
+            on_progress([dict(s) for s in steps])
+
     allowed = {**TOOLS, **(INGEST_TOOL if ingestor else {})}
     ingestions, finish_retried = [], False
     if not question.strip() or len(question) > 2000:
@@ -585,6 +661,7 @@ def run_agent(
                 )
             if service.store.version != version:
                 raise ResearchError("invalid_request", "Corpus changed during the research run")
+            step(kind="model", label="Choosing the next step")
             response = provider.respond(
                 messages,
                 tool_schemas(ingest=ingestor is not None),
@@ -623,6 +700,12 @@ def run_agent(
                 if name not in allowed:
                     raise ResearchError("invalid_request", "Model requested an unauthorized tool")
                 arguments = allowed[name][0].model_validate_json(call["arguments"])
+                step(
+                    kind="tool",
+                    tool=name,
+                    label=describe_step(name, arguments.model_dump()),
+                    **({"company": arguments.company} if name == "ingest_company" else {}),
+                )
                 if name == "ingest_company":
                     requested = {year_number(y) for y in arguments.years}
                     permitted = set(years) | ({min(years) - 1} if years else set())
@@ -634,6 +717,10 @@ def run_agent(
                         raise ResearchError("not_found", "Agent reached its ingestion limit")
                     paused = time.monotonic()
                     tool_result = ingestor(arguments.company, sorted(arguments.years))
+                    step(
+                        status=tool_result.get("status", "ok"),
+                        summary=summarize_step(name, tool_result),
+                    )
                     seconds = time.monotonic() - paused
                     started += seconds  # Ingestion time does not count against the agent.
                     version = service.store.version  # The corpus changed on purpose.
@@ -688,6 +775,10 @@ def run_agent(
                         # invalid finish fails the run as before.
                         finish_retried = True
                         trace[-1].update(status="rejected", unknown_ids=unknown)
+                        step(
+                            status="rejected",
+                            summary="cited IDs no tool returned; asking for a correction",
+                        )
                         messages.append(
                             {
                                 "type": "function_call_output",
@@ -718,6 +809,7 @@ def run_agent(
                         run_id=run_id,
                     )
                     trace[-1]["status"] = result.status
+                    step(status="done", summary="")
                     break
                 kwargs = arguments.model_dump()
                 if isinstance(arguments, Selection):
@@ -744,6 +836,7 @@ def run_agent(
                             "invalid_request", "Tool company is outside the question"
                         )
                 tool_result = service.call(name, **kwargs).model_dump(mode="json")
+                step(status=tool_result["status"], summary=summarize_step(name, tool_result))
                 ledger.absorb(tool_result["data"])
                 trace.append(
                     {
@@ -766,6 +859,8 @@ def run_agent(
         else:
             raise ResearchError("not_found", "Agent reached its iteration budget")
     except (ResearchError, ValidationError, ValueError, KeyError, TypeError) as exc:
+        if steps and steps[-1]["status"] == "running":
+            step(status="failed", summary=str(exc)[:200])
         result = service.result(
             getattr(exc, "status", "invalid_request"),
             str(exc),
@@ -786,6 +881,7 @@ def run_agent(
         "usage": usage,
         "tool_calls": calls,
         "trace": trace,
+        "steps": steps,
         "result": result.model_dump(mode="json"),
         "execution": "provider_calls",
         "semantic_review": "not_independently_reviewed",

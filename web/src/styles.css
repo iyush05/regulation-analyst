@@ -405,3 +405,87 @@ table {
   border-collapse: collapse;
   width: 100%;
 }
+
+/* Agent progress */
+.working {
+  margin-top: 1rem;
+}
+.working .status-line {
+  margin: 0 0 0.5rem;
+}
+.how {
+  margin-top: 1rem;
+}
+.how summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+.agent-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.step {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+.step-icon {
+  text-align: center;
+  color: var(--good);
+  font-weight: 700;
+}
+.step-not_found .step-icon,
+.step-partial .step-icon,
+.step-rejected .step-icon {
+  color: var(--muted);
+}
+.step-failed .step-icon,
+.step-invalid_request .step-icon {
+  color: var(--bad);
+}
+.step-body {
+  display: grid;
+}
+.step-running .step-label {
+  font-weight: 600;
+}
+.step-summary,
+.step-time,
+.step-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.step-time {
+  font-variant-numeric: tabular-nums;
+}
+.step-detail {
+  margin: 0.2rem 0 0;
+  padding-left: 1rem;
+}
+.spinner {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -0.1rem;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-top-color: var(--line);
+    background: var(--accent);
+  }
+}

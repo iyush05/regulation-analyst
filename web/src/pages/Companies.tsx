@@ -8,7 +8,7 @@ import {
   type IngestResult,
   type Job,
 } from "../api/client";
-import { elapsed, useJob } from "../components/useJob";
+import { elapsed, isRunning, useJob, useNow } from "../components/useJob";
 
 const YEAR_CHOICES = ["FY22", "FY23", "FY24", "FY25", "FY26"];
 
@@ -164,6 +164,7 @@ function IngestProgress(props: {
   onJob: (id: string) => void;
 }) {
   const job = useJob(props.jobId);
+  const now = useNow(isRunning(job.data));
   const queries = useQueryClient();
   const finished = job.data?.status === "done";
   useEffect(() => {
@@ -175,7 +176,7 @@ function IngestProgress(props: {
   return (
     <div className="progress">
       <p className="muted">
-        {finished ? "Finished" : `Working (${job.data.status})`} · {elapsed(job.data)}
+        {finished ? "Finished" : `Working (${job.data.status})`} · {elapsed(job.data, now)}
       </p>
       {!finished && <Steps job={job.data} />}
       {result && (

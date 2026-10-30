@@ -147,3 +147,5 @@ def test_agent_runs_as_a_job_and_needs_a_configured_model(api, store):
     )
     assert finished["status"] == "done", finished["error"]
     assert "₹1,62,990 cr" in finished["result"]["data"]["answer"]
+    labels = [step["label"] for step in finished["progress"] if step["kind"] == "tool"]
+    assert labels == ["Fetching revenue for Infosys FY25", "Writing the answer"]

@@ -2,7 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Result } from "../api/client";
 import { Answer } from "../components/Answer";
-import { elapsed, useJob } from "../components/useJob";
+import { type AgentStep, Steps } from "../components/Steps";
+import { elapsed, isRunning, useJob, useNow } from "../components/useJob";
 
 const EXAMPLES = [
   "Compare Infosys and TCS net margin FY23 to FY25",
@@ -27,6 +28,8 @@ export function Ask() {
     onSuccess: (job) => setJobId(job.id),
   });
   const job = useJob(mode === "agent" ? jobId : null);
+  const now = useNow(isRunning(job.data));
+  const steps = (job.data?.progress ?? []) as unknown as AgentStep[];
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -116,13 +119,27 @@ export function Ask() {
 
       {error && <p className="error">{error.message}</p>}
       {mode === "agent" && job.data && job.data.status !== "done" && (
-        <p className="muted status-line">
-          {job.data.status === "failed"
-            ? `Agent run failed: ${job.data.error}`
-            : `Agent ${job.data.status}… ${elapsed(job.data)}${allowIngest ? " (adding a company can take a few minutes)" : ""}`}
-        </p>
+        <section className="card working">
+          <p className="muted status-line">
+            {job.data.status === "failed"
+              ? `Agent run failed: ${job.data.error}`
+              : job.data.status === "queued"
+                ? "Waiting for the previous job to finish…"
+                : `Agent working · ${elapsed(job.data, now)}`}
+          </p>
+          {steps.length > 0 && <Steps steps={steps} now={now} />}
+        </section>
       )}
       {result && <Answer result={result} />}
+      {mode === "agent" && job.data?.status === "done" && steps.length > 0 && (
+        <details className="card how">
+          <summary>
+            How this answer was found ({steps.filter((s) => s.kind === "tool").length} steps,{" "}
+            {elapsed(job.data, now)})
+          </summary>
+          <Steps steps={steps} now={now} />
+        </details>
+      )}
     </div>
   );
 }

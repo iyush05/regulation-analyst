@@ -101,6 +101,7 @@ class Jobs:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job")
 
     def submit(self, kind, request: dict, work) -> Job:
+        """`work(report)` runs on the worker; `report(steps)` publishes progress so far."""
         job = Job(
             id=uuid.uuid4().hex, kind=kind, status="queued", request=request, created_at=time.time()
         )
@@ -110,7 +111,8 @@ class Jobs:
         def run():
             self.update(job.id, status="running", started_at=time.time())
             try:
-                self.update(job.id, status="done", result=work(), finished_at=time.time())
+                result = work(lambda steps: self.update(job.id, progress=steps))
+                self.update(job.id, status="done", result=result, finished_at=time.time())
             except Exception as exc:  # A failed job is reported, never raised into the pool.
                 message = (
                     str(exc) if isinstance(exc, ResearchError) else f"{type(exc).__name__}: {exc}"
@@ -236,7 +238,7 @@ def create_app(settings: Settings, *, provider_factory=model_provider, client=No
             png = page.get_pixmap(dpi=110).tobytes("png")
         return Response(png, media_type="image/png", headers={"Cache-Control": "private"})
 
-    def agent_work(request: AgentRequest, model):
+    def agent_work(request: AgentRequest, model, report):
         from .agent import Selection as AgentSelection
         from .agent import run_agent
         from .pipeline import agent_ingestor
@@ -264,13 +266,16 @@ def create_app(settings: Settings, *, provider_factory=model_provider, client=No
                 trust=request.trust,
             ),
             ingestor=ingestor,
+            on_progress=report,
         )
         return result.model_dump(mode="json")
 
     @app.post("/api/agent", dependencies=guarded, status_code=202)
     def agent(request: AgentRequest) -> Job:
         model = provider()
-        return jobs.submit("agent", request.model_dump(), lambda: agent_work(request, model))
+        return jobs.submit(
+            "agent", request.model_dump(), lambda report: agent_work(request, model, report)
+        )
 
     def ingest_work(request: IngestRequest, model):
         from .pipeline import ingest
@@ -303,7 +308,9 @@ def create_app(settings: Settings, *, provider_factory=model_provider, client=No
 
     def start_ingest(request: IngestRequest) -> Job:
         model = provider() if needs_model(request) else None
-        return jobs.submit("ingest", request.model_dump(), lambda: ingest_work(request, model))
+        return jobs.submit(
+            "ingest", request.model_dump(), lambda report: ingest_work(request, model)
+        )
 
     @app.post("/api/ingest", dependencies=guarded, status_code=202)
     def ingest_company(request: IngestRequest) -> Job:
@@ -343,12 +350,17 @@ def create_app(settings: Settings, *, provider_factory=model_provider, client=No
 
     @app.get("/api/jobs/{job_id}", dependencies=guarded)
     def job(job_id: str) -> Job:
+        from .pipeline import slug
+
         current = jobs.get(job_id)
         if current.kind == "ingest":
-            from .pipeline import slug
-
             progress = service().store.jobs(slug(current.request["company"]))
             current = current.model_copy(update={"progress": progress})
+        elif current.progress and current.progress[-1].get("tool") == "ingest_company":
+            # While the agent ingests, show that pipeline's own stages under its step.
+            last = dict(current.progress[-1])
+            last["detail"] = service().store.jobs(slug(last["company"]))
+            current = current.model_copy(update={"progress": [*current.progress[:-1], last]})
         return current
 
     app.state.jobs = jobs
