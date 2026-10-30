@@ -431,6 +431,14 @@ def test_eps_follows_its_heading_and_skips_share_counts():
     assert (found["eps_basic"], found["eps_diluted"]) == (3, 4)
 
 
+def test_total_tax_label_is_recognised_for_company_totals():
+    rows = [
+        ["IX. Profit before tax (VII-VIII)", "", "27,955.11", "2,690.00"],
+        ["Total tax (credit)/expense (net)", "22", "(3,851.64)", "704.00"],
+    ]
+    assert classify("profit_loss", rows)["tax_expense"] == 1
+
+
 def test_schedule_iii_numbering_is_ignored_when_matching_labels():
     rows = [
         ["Revenue from operations", "34", "", ""],
@@ -467,6 +475,7 @@ def test_continuing_operation_lines_are_not_company_totals():
     ]
     found = classify("profit_loss", rows)
     assert "profit_before_tax" not in found
-    assert found["tax_expense"] == 3
+    # "Total tax (credit)/expense (net)" follows the continuing-operations subtotal.
+    assert "tax_expense" not in found
     assert found["profit_total"] == 8
     assert found["profit_owners"] == 10

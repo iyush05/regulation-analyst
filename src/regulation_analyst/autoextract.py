@@ -246,6 +246,7 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
     eps_section = False
     # The amount line an "Attributable to:" heading refers to.
     last_amount = ""
+    partial_tax = False
     for index, row in enumerate(rows):
         label = plain_label(row)
         if not label:
@@ -263,8 +264,14 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
             eps_section = eps_section or "earnings per" in label
             continue
         label = re.sub(r"\s*\((₹|rs\.?|inr|in ₹|in rs\.?)[^)]*\)\s*$", "", label)
+        if re.match(r"^profit before .*tax", label):
+            # Tax that follows a continuing-operations subtotal is continuing-only, even when
+            # its own label says "Total tax expense".
+            partial_tax = bool(re.search(r"continuing|discontinued", label))
         for metric in STATEMENT_METRICS[statement]:
             pattern = PATTERNS.get(metric)
+            if metric == "tax_expense" and partial_tax:
+                continue
             if metric not in found and pattern and re.search(pattern, label):
                 found[metric] = index
         if statement == "profit_loss":

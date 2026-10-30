@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .acquisition import OFFICIAL_DOMAINS, SourceRequest, acquire
 from .autoextract import automap, header_year
 from .errors import ResearchError
+from .gates import entries_of, gate, import_new
 from .models import Company, Document, year_number
 from .review import squash
 
@@ -338,10 +339,15 @@ def map_filings(
         if not item.get("snapshot_path") or (item.get("candidates") and not remap):
             continue
         # Remapping replaces generated candidates; the archived source PDF is untouched.
-        for stale in [*item.pop("candidates", []), item.pop("report", None)]:
+        for stale in [
+            *item.pop("candidates", []),
+            item.pop("report", None),
+            item.pop("queue", None),
+        ]:
             if stale:
                 Path(stale).unlink(missing_ok=True)
         item.pop("map_error", None)
+        item.pop("gate", None)
         document = Document(
             id=f"{planned['company'].id}-annual-report-fy{item['fiscal_year']}",
             title=item["title"],
@@ -381,6 +387,75 @@ def map_filings(
     return results
 
 
+def gate_filings(store, planned, mapped_now, *, provider=None, budget=None, do_import=True):
+    """Run validation gates on mapped filings, import what passes, and queue the rest."""
+    pending = [
+        item
+        for item in planned["items"]
+        if item.get("candidates")
+        and ("gate" not in item or item in mapped_now or not item["gate"]["import_run"])
+    ]
+    if not pending:
+        return
+    loaded = {}
+    for item in planned["items"]:
+        if not item.get("candidates"):
+            continue
+        report = json.loads(Path(item["report"]).read_text())
+        loaded[id(item)] = [
+            (json.loads(Path(path).read_text()), extraction["extraction"])
+            for path, extraction in zip(item["candidates"], report["extractions"], strict=True)
+        ]
+    # Every report in this run corroborates the others.
+    everything = [e for pairs in loaded.values() for c, _ in pairs for e in entries_of(c)]
+    for item in pending:
+        key = item_key(item["fiscal_year"])
+        summary = {
+            "import_run": do_import,
+            "accepted": 0,
+            "imported": 0,
+            "already_imported": 0,
+            "llm_resolved": 0,
+            "queued": 0,
+            "comparatives_corroborating": 0,
+            "comparatives_disagreeing": 0,
+            "restated_later": [],
+            "conflicts": [],
+        }
+        queue = []
+        for candidate, extraction in loaded[id(item)]:
+            result = gate(
+                candidate,
+                extraction=extraction,
+                store=store,
+                others=everything,
+                provider=provider,
+                budget=budget,
+            )
+            summary["accepted"] += len(result["accepted"])
+            summary["llm_resolved"] += len(result["llm_resolved"])
+            summary["queued"] += len(result["queued"])
+            summary["comparatives_corroborating"] += result["comparatives_corroborating"]
+            summary["comparatives_disagreeing"] += len(result["comparatives_disagreeing"])
+            summary["restated_later"] += [
+                f"{r['scope']} {r['metric']} FY{r['fiscal_year']}: {r['warnings'][0]}"
+                for r in result["restated_later"]
+            ]
+            queue += result["queued"]
+            if do_import and result["bundle"] is not None:
+                imported = import_new(store, result["bundle"])
+                summary["imported"] += imported["inserted"]
+                summary["already_imported"] += imported["skipped"]
+                summary["conflicts"] += imported["conflicts"]
+        path = Path(item["report"]).with_name(
+            Path(item["report"]).name.replace("-report", "-queue")
+        )
+        path.write_text(json.dumps(queue, indent=2, ensure_ascii=False) + "\n")
+        item.update(gate=summary, queue=str(path))
+        status = "review_required" if queue or not do_import else "done"
+        store.record_job(planned["key"], key, "import", status, detail(item))
+
+
 def ingest(
     store,
     name: str,
@@ -401,6 +476,8 @@ def ingest(
     budget=None,
     remap=False,
     max_bytes=MAX_REPORT_BYTES,
+    do_import=True,
+    llm_resolve=False,
 ) -> dict:
     wanted = sorted({year_number(y) for y in years})
     if not wanted or len(wanted) > 10:
@@ -422,7 +499,7 @@ def ingest(
         time.sleep(poll_seconds)
         take_from_inbox(store, planned, inbox, archive, max_bytes)
         blocked = [i for i in blocked if not i.get("snapshot_path")]
-    map_filings(
+    mapped_now = map_filings(
         store,
         planned,
         extractions,
@@ -431,13 +508,29 @@ def ingest(
         budget=budget,
         remap=remap,
     )
+    gate_filings(
+        store,
+        planned,
+        mapped_now,
+        provider=provider if llm_resolve else None,
+        budget=budget,
+        do_import=do_import,
+    )
     return {
         "company": planned["company"].model_dump(mode="json"),
         "domain": planned["domain"],
         "filings": [
             {
                 "fiscal_year": item["fiscal_year"],
-                "status": "review_required"
+                "status": (
+                    "review_required"
+                    if not item["gate"]["import_run"]
+                    else "imported_with_queue"
+                    if item["gate"]["queued"]
+                    else "imported"
+                )
+                if item.get("gate")
+                else "review_required"
                 if item.get("candidates")
                 else "map_failed"
                 if item.get("map_error")

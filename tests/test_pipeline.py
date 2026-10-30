@@ -128,7 +128,7 @@ def test_blocked_download_opens_browser_then_inbox_completes_ingestion(tmp_path,
         **paths,
     )
     status = {f["fiscal_year"]: f["status"] for f in first["filings"]}
-    assert status == {2024: "needs_manual_pdf", 2025: "review_required"}
+    assert status == {2024: "needs_manual_pdf", 2025: "imported"}
     assert opened == [AR24]
     assert first["company"]["id"] == "synind"
     fy25_item = next(f for f in first["filings"] if f["fiscal_year"] == 2025)
@@ -148,8 +148,8 @@ def test_blocked_download_opens_browser_then_inbox_completes_ingestion(tmp_path,
         store, "Synthetic", ["FY24", "FY25"], provider=Refuses(), opener=opened.append, **paths
     )
     assert {f["fiscal_year"]: f["status"] for f in second["filings"]} == {
-        2024: "review_required",
-        2025: "review_required",
+        2024: "imported",
+        2025: "imported",
     }
     assert opened == [AR24]
     assert not list(paths["inbox"].glob("*.pdf"))
@@ -157,8 +157,8 @@ def test_blocked_download_opens_browser_then_inbox_completes_ingestion(tmp_path,
     jobs = {j["item"]: j["status"] for j in store.jobs("synthetic")}
     assert jobs == {
         "company": "done",
-        "FY2024-annual-report": "review_required",
-        "FY2025-annual-report": "review_required",
+        "FY2024-annual-report": "done",
+        "FY2025-annual-report": "done",
     }
 
 
@@ -228,8 +228,8 @@ def test_cli_with_explicit_links_and_inbox_needs_no_model(tmp_path, capsys, monk
     report(inbox / "ar-2024-25.pdf")
     assert main(args) == 0
     done = json.loads(capsys.readouterr().out)
-    assert done["status"] == "review_required"
-    assert done["filings"][0]["status"] == "review_required"
+    assert done["status"] == "ok"
+    assert done["filings"][0]["status"] == "imported"
 
 
 def test_remap_replaces_candidates_without_downloading(tmp_path, paths):
@@ -239,7 +239,7 @@ def test_remap_replaces_candidates_without_downloading(tmp_path, paths):
     old = first["filings"][0]["candidates"]
     again = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), remap=True, **paths)
     item = again["filings"][0]
-    assert item["status"] == "review_required"
+    assert item["status"] == "imported"
     assert item["candidates"] == old
     assert all(open(path).read() for path in item["candidates"])
 
@@ -273,6 +273,6 @@ def test_oversized_report_is_reported_per_filing_not_fatal(tmp_path, paths):
     assert saved.exists()
 
     third = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), manual=True, **paths)
-    assert third["filings"][0]["status"] == "review_required"
+    assert third["filings"][0]["status"] == "imported"
     assert "inbox_error" not in third["filings"][0]
     assert not saved.exists()

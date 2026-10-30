@@ -164,6 +164,14 @@ def parser():
     ingest.add_argument(
         "--remap", action="store_true", help="Map archived reports again with current rules"
     )
+    ingest.add_argument(
+        "--no-import", action="store_true", help="Run validation gates without importing"
+    )
+    ingest.add_argument(
+        "--llm-resolve",
+        action="store_true",
+        help="Let the model re-point line items that fail validation (row choices only)",
+    )
     ingest.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     ingest.add_argument("--max-tokens", type=int, default=100_000)
     ingest.add_argument("--archive", type=Path, default=Path("data/sources"))
@@ -354,7 +362,11 @@ def main(argv=None) -> int:
                 if not separator:
                     raise ResearchError("invalid_request", "Use --url FY25=https://...")
                 urls[year_number(year)] = link
-            needs_model = args.llm_map or set(urls) != {year_number(y) for y in args.years}
+            needs_model = (
+                args.llm_map
+                or args.llm_resolve
+                or set(urls) != {year_number(y) for y in args.years}
+            )
             provider = (
                 OpenAIProvider(model=args.model)
                 if needs_model and os.environ.get("OPENAI_API_KEY") and args.model
@@ -377,10 +389,17 @@ def main(argv=None) -> int:
                 llm_mapping=args.llm_map and provider is not None,
                 budget=budget,
                 remap=args.remap,
+                do_import=not args.no_import,
+                llm_resolve=args.llm_resolve and provider is not None,
             )
             waiting = [f for f in result["filings"] if f["status"] == "needs_manual_pdf"]
+            done = all(f["status"] == "imported" for f in result["filings"])
             payload = {
-                "status": "partial" if waiting or result["not_found"] else "review_required",
+                "status": "partial"
+                if waiting or result["not_found"]
+                else "ok"
+                if done
+                else "review_required",
                 **result,
                 "usage": budget.usage if budget else None,
             }

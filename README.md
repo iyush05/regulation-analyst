@@ -118,8 +118,19 @@ and fiscal year in their first pages.
 ```
 
 Links must be on the company's own domain or BSE/NSE; aggregators are rejected. Progress is
-kept in the database, so reruns reuse discovery and skip finished steps. Output candidates
-still require `review` and `import` until automated validation gates are added.
+kept in the database, so reruns reuse discovery and skip finished steps; `--remap` re-maps
+archived reports with current rules.
+
+Mapped facts are imported only after validation gates: the value is printed at the cited cell
+of the archived PDF, its year and revision fit the report, accounting identities hold within
+rounding (total income = revenue + other income; profit = profit before tax − tax), it agrees
+with other reports of the same year, and it is plausible (signs, magnitudes, unit errors).
+Comparative columns are cross-checks only; each year comes from its own report, and a later
+restatement is recorded as a warning. With `--llm-resolve`, the model may re-point a failing
+line item to another row of the same table; the value is re-read from that cell and all gates
+re-run. Everything else goes to `artifacts/candidates/*-queue.json` for review. Imported facts
+are labelled `automated_extraction` or `llm_resolved`; answers mark them as unreviewed, reviewed
+facts take precedence, and `--trust reviewed_only` excludes them. Use `--no-import` to gate only.
 
 ## Acquire, extract, map, review
 

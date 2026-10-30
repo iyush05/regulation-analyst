@@ -152,6 +152,17 @@ Validated only on generated PDFs; real-report accuracy is unmeasured until PDFs 
 
 ## 6. Phase 5: Validation gates and LLM resolver (≈5 days), new module `validation.py`
 
+**Done (built as Phase 4, `gates.py`).** Gates as planned, with these decisions from real
+reports: grounding re-reads the archived PDF at the cell box; identities use a tolerance of
+half the printed rounding step per term; comparatives are never imported (cross-checks only);
+disagreement with another *reported* figure blocks, while disagreement with a later report's
+comparative is recorded as a restatement (Tata Motors restated FY24 after its demerger). Lines
+for continuing or discontinued operations are never stored as company totals. The resolver
+sends the page image and table rows and accepts row indexes only, up to two rounds. On Infosys
+FY24/FY25 all 64 facts pass; on Tata Motors 38 pass and 6 cash-flow values with unidentified
+year columns are queued. The resolver is tested with a controlled model; live behaviour is
+unmeasured.
+
 | Gate | Check | On failure |
 |---|---|---|
 | G1 Grounding | The value string occurs in the cell or OCR text at its location | Resolver |
