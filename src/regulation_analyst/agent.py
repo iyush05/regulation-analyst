@@ -175,11 +175,11 @@ def for_model(value):
         compact = {k: value[k] for k in CALCULATION_FIELDS if k in value}
         compact["warnings"] = [w["text"] for w in value.get("warnings", [])]
         return compact
-    return {
-        key: for_model(item)
-        for key, item in value.items()
-        if key not in ("source", "corpus_version", "locator")
-    }
+    # Narrative records are cited by their own ID; their evidence ID only invites confusion.
+    hidden = {"source", "corpus_version", "locator"}
+    if "representation" in value and "text" in value:
+        hidden.add("evidence_id")
+    return {key: for_model(item) for key, item in value.items() if key not in hidden}
 
 
 class Budgets(BaseModel):
@@ -289,6 +289,23 @@ class Ledger:
                 if isinstance(item, (dict, list)):
                     self.absorb(item)
 
+    POOLS = {
+        "fact_ids": "facts",
+        "calculation_ids": "calculations",
+        "passage_ids": "passages",
+        "provision_ids": "provisions",
+    }
+
+    def unknown_ids(self, selection: FinishArgs) -> dict[str, list[str]]:
+        unknown = {
+            field: [rid for rid in getattr(selection, field) if rid not in getattr(self, pool)]
+            for field, pool in self.POOLS.items()
+        }
+        return {field: ids for field, ids in unknown.items() if ids}
+
+    def valid_ids(self) -> dict[str, list[str]]:
+        return {field: sorted(getattr(self, pool)) for field, pool in self.POOLS.items()}
+
     def answer_text(self, chosen, narrative, selection: FinishArgs) -> str:
         from .render import Sources, assemble, bullets, name, year_table
 
@@ -353,7 +370,10 @@ class Ledger:
                 if rid not in pool:
                     raise ResearchError(
                         "invalid_request",
-                        "Final answer references evidence never returned by a tool",
+                        "Final answer references evidence never returned by a tool: "
+                        + "; ".join(
+                            f"{name} {ids}" for name, ids in self.unknown_ids(selection).items()
+                        ),
                     )
                 item = pool[rid]
                 if kind == "calculation":
@@ -422,7 +442,7 @@ def run_agent(
     is excluded from the agent's own time budget, and its model usage is logged separately."""
     budgets, selection = budgets or Budgets(), selection or Selection()
     allowed = {**TOOLS, **(INGEST_TOOL if ingestor else {})}
-    ingestions = []
+    ingestions, finish_retried = [], False
     if not question.strip() or len(question) > 2000:
         raise ResearchError("invalid_request", "Question must contain 1–2000 characters")
     if re.search(
@@ -588,6 +608,37 @@ def run_agent(
                         raise ResearchError(
                             "invalid_request", "Finish must be the only call in its response"
                         )
+                    # Logged before validation so a rejected finish is always diagnosable.
+                    trace.append(
+                        {
+                            "iteration": iteration + 1,
+                            "tool": "finish",
+                            "arguments": arguments.model_dump(),
+                        }
+                    )
+                    unknown = ledger.unknown_ids(arguments)
+                    if unknown and not finish_retried:
+                        # One correction: the model learns which IDs it may cite. A second
+                        # invalid finish fails the run as before.
+                        finish_retried = True
+                        trace[-1].update(status="rejected", unknown_ids=unknown)
+                        messages.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": call["call_id"],
+                                "output": canonical(
+                                    {
+                                        "status": "invalid_request",
+                                        "message": "These IDs were never returned by a tool. "
+                                        "Call finish again citing only valid_ids, each in "
+                                        "its own field.",
+                                        "unknown_ids": unknown,
+                                        "valid_ids": ledger.valid_ids(),
+                                    }
+                                ),
+                            }
+                        )
+                        continue
                     data = ledger.render(arguments)
                     result = service.result(
                         "partial"
@@ -600,14 +651,7 @@ def run_agent(
                         workflow="bounded_agent",
                         run_id=run_id,
                     )
-                    trace.append(
-                        {
-                            "iteration": iteration + 1,
-                            "tool": "finish",
-                            "arguments": arguments.model_dump(),
-                            "status": result.status,
-                        }
-                    )
+                    trace[-1]["status"] = result.status
                     break
                 kwargs = arguments.model_dump()
                 if isinstance(arguments, Selection):

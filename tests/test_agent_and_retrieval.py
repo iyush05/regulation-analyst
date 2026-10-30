@@ -121,9 +121,49 @@ def test_agent_multistep_recomputes_and_renders_citations(service, tmp_path):
     ],
 )
 def test_agent_rejects_invalid_evidence_and_calls(service, tmp_path, call, expected):
-    answer = run_agent(service, "Infosys revenue FY25", ScriptedProvider([call]), log_dir=tmp_path)
+    # Repeated because an invalid finish gets one chance to correct itself.
+    provider = ScriptedProvider([call, call])
+    answer = run_agent(service, "Infosys revenue FY25", provider, log_dir=tmp_path)
     assert answer.status == "invalid_request"
     assert expected in answer.message
+
+
+def test_invalid_finish_gets_one_correction_with_valid_ids(service, tmp_path):
+    search = {"query": "operating margin", "company": "Infosys", "year": "FY25"}
+    provider = ScriptedProvider(
+        [
+            ("search_filings", search),
+            # A plausible model mistake: citing the passage's evidence ID as the passage.
+            ("finish", finish(passage_ids=["ev-infosys-call25-margin"])),
+            ("finish", finish(passage_ids=["passage-infosys-call25-margin"])),
+        ]
+    )
+    answer = run_agent(
+        service,
+        "What did Infosys management say about operating margin in FY25?",
+        provider,
+        log_dir=tmp_path,
+    )
+    assert answer.status == "ok", answer.message
+    assert "Project Maximus" in answer.data["answer"]
+    search_output = next(
+        m["output"] for m in provider.messages if m.get("type") == "function_call_output"
+    )
+    assert "ev-infosys-call25-margin" not in search_output
+    correction = json.loads(provider.messages[-1]["output"])
+    assert correction["unknown_ids"] == {"passage_ids": ["ev-infosys-call25-margin"]}
+    assert correction["valid_ids"]["passage_ids"] == ["passage-infosys-call25-margin"]
+    log = json.loads(open(answer.data["run_log"]).read())
+    rejected, accepted = [t for t in log["trace"] if t["tool"] == "finish"]
+    assert rejected["status"] == "rejected" and accepted["status"] == "ok"
+
+
+def test_second_invalid_finish_names_the_unknown_ids(service, tmp_path):
+    bad = ("finish", finish(fact_ids=["made-up"]))
+    answer = run_agent(
+        service, "Infosys revenue FY25", ScriptedProvider([bad, bad]), log_dir=tmp_path
+    )
+    assert answer.message.endswith("fact_ids ['made-up']")
 
 
 def test_agent_budget_and_advice_boundary(service, tmp_path):
