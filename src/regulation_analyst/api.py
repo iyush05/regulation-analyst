@@ -138,11 +138,10 @@ class Jobs:
 
 
 def model_provider():
-    import os
 
-    from .providers import OpenAIProvider
+    from .providers import chat_provider
 
-    return OpenAIProvider(model=os.environ.get("REGULATION_AGENT_MODEL", ""))
+    return chat_provider()
 
 
 def create_app(settings: Settings, *, provider_factory=model_provider, client=None) -> FastAPI:

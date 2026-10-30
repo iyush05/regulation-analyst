@@ -329,7 +329,7 @@ def main(argv=None) -> int:
         elif args.command == "automap":
             from .autoextract import automap
             from .models import Company, Document
-            from .providers import OpenAIProvider, UsageBudget
+            from .providers import UsageBudget, chat_configured, chat_provider
 
             company = Company(
                 id=args.company_id,
@@ -353,7 +353,7 @@ def main(argv=None) -> int:
                 company,
                 document,
                 args.extractions,
-                provider=OpenAIProvider(model=args.model) if args.llm else None,
+                provider=chat_provider(args.model) if args.llm else None,
                 budget=budget,
             )
             args.output.mkdir(parents=True, exist_ok=True)
@@ -391,7 +391,7 @@ def main(argv=None) -> int:
 
             from .models import year_number
             from .pipeline import ingest
-            from .providers import OpenAIProvider, UsageBudget
+            from .providers import UsageBudget, chat_configured, chat_provider
 
             urls = {}
             for entry in args.url:
@@ -406,9 +406,7 @@ def main(argv=None) -> int:
                 or set(urls) != {year_number(y) for y in args.years}
             )
             provider = (
-                OpenAIProvider(model=args.model)
-                if needs_model and os.environ.get("OPENAI_API_KEY") and args.model
-                else None
+                chat_provider(args.model) if needs_model and chat_configured(args.model) else None
             )
             budget = UsageBudget(args.max_tokens) if provider else None
             result = ingest(
@@ -465,9 +463,9 @@ def main(argv=None) -> int:
             payload["extracted_pages"] = len(artifact["pages"])
         elif args.command == "benchmark-layout":
             from .benchmark import markdown, run_layout_benchmark
-            from .providers import OpenAIProvider
+            from .providers import chat_provider
 
-            provider = OpenAIProvider(model=args.model) if args.layout != "rules" else None
+            provider = chat_provider(args.model) if args.layout != "rules" else None
             report = run_layout_benchmark(
                 args.gold,
                 args.archive,
@@ -515,10 +513,10 @@ def main(argv=None) -> int:
             ingestor = None
             if args.allow_ingest:
                 from .pipeline import agent_ingestor
-                from .providers import OpenAIProvider
+                from .providers import chat_provider
 
                 model = os.environ.get("REGULATION_AGENT_MODEL", "")
-                ingestor = agent_ingestor(args.db, OpenAIProvider(model=model))
+                ingestor = agent_ingestor(args.db, chat_provider(model))
             create_server(
                 args.db,
                 retriever=make_retriever(Store(args.db), args.hybrid_index),
@@ -530,7 +528,7 @@ def main(argv=None) -> int:
             service = ResearchService(store, retriever=make_retriever(store, args.hybrid_index))
             if args.command == "experiment":
                 from .experiments import Benchmark, run_experiment
-                from .providers import OpenAIProvider
+                from .providers import chat_provider
 
                 path = args.benchmark or files("regulation_analyst").joinpath(
                     "fixtures/research-benchmark.json"
@@ -539,9 +537,7 @@ def main(argv=None) -> int:
                     service,
                     Benchmark.model_validate_json(path.read_text()),
                     mode=args.mode,
-                    provider=OpenAIProvider(model=args.model)
-                    if args.mode != "fixed_tools"
-                    else None,
+                    provider=chat_provider(args.model) if args.mode != "fixed_tools" else None,
                     split=args.split,
                     include_drafts=args.include_drafts,
                     output=args.output,
@@ -572,9 +568,9 @@ def main(argv=None) -> int:
 
                 from .agent import Budgets, Selection, run_agent
                 from .pipeline import agent_ingestor
-                from .providers import OpenAIProvider
+                from .providers import chat_provider
 
-                provider = OpenAIProvider(model=args.model)
+                provider = chat_provider(args.model)
                 result = run_agent(
                     service,
                     args.question,

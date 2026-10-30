@@ -169,7 +169,8 @@ def plan(store, name: str, years: list[int], *, provider=None, urls=None, budget
         if provider is None:
             raise ResearchError(
                 "invalid_request",
-                "Finding filings needs OPENAI_API_KEY and REGULATION_AGENT_MODEL; "
+                "Finding filings needs a configured model with web search (OpenAI: "
+                "OPENAI_API_KEY and REGULATION_AGENT_MODEL); "
                 "or supply --url FY25=https://... for each year",
             )
         matches = identify(provider, name, budget)
