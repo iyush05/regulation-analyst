@@ -137,6 +137,7 @@ INGEST_TOOL = {
     )
 }
 MAX_INGESTIONS = 2
+MAX_EMPTY_SEARCHES = 2
 
 
 def tool_schemas(ingest: bool = False):
@@ -598,7 +599,7 @@ def run_agent(
             on_progress([dict(s) for s in steps])
 
     allowed = {**TOOLS, **(INGEST_TOOL if ingestor else {})}
-    ingestions, finish_retried = [], False
+    ingestions, finish_retried, empty_searches = [], False, 0
     if not question.strip() or len(question) > 2000:
         raise ResearchError("invalid_request", "Question must contain 1–2000 characters")
     if re.search(
@@ -862,7 +863,18 @@ def run_agent(
                         raise ResearchError(
                             "invalid_request", "Tool company is outside the question"
                         )
-                tool_result = service.call(name, **kwargs).model_dump(mode="json")
+                if name == "search_filings" and empty_searches >= MAX_EMPTY_SEARCHES:
+                    # Rephrasing a search that keeps finding nothing only burns steps.
+                    tool_result = service.result(
+                        "not_found",
+                        f"{empty_searches} searches in a row found nothing; searching again "
+                        "will not help. Call finish, listing what is missing in gaps.",
+                    ).model_dump(mode="json")
+                else:
+                    tool_result = service.call(name, **kwargs).model_dump(mode="json")
+                if name == "search_filings":
+                    empty = not tool_result["data"].get("passages")
+                    empty_searches = empty_searches + 1 if empty else 0
                 step(status=tool_result["status"], summary=summarize_step(name, tool_result))
                 ledger.absorb(tool_result["data"])
                 if name == "check_coverage" and tool_result["data"].get("covered") is False:

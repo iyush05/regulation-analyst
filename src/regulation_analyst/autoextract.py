@@ -20,7 +20,8 @@ from .numbers import parse_number
 from .review import MappingPlan, build_candidates, squash
 
 STATEMENTS = {
-    "profit_loss": re.compile(r"statement of profit and loss|profit and loss statement"),
+    # Plural titles occur too, e.g. Wipro's "Consolidated Statements of Profit and Loss".
+    "profit_loss": re.compile(r"statements? of profit and loss|profit and loss statement"),
     "balance_sheet": re.compile(r"balance sheet|statement of financial position"),
     "cash_flow": re.compile(r"statements? of cash flows?|cash flow statement"),
 }

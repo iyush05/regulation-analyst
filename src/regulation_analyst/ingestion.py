@@ -50,8 +50,16 @@ def _column_headers(words, lefts, anchors, label_end, cells, boxes):
             for i, (left, anchor) in enumerate(zip(lefts, anchors, strict=True))
         ]
         overlap, column = max(overlaps)
+        # A header that is only a date may start left of the amounts (e.g. Wipro's cash flow
+        # "March 31, 2025"); anything else that starts in the label area stays label text.
+        date_only = re.fullmatch(
+            r"(?:\w+\s+)?\d{1,2}(?:st|nd|rd|th)?[\s.,/-]*\w*[\s.,/-]*(?:19|20)\d{2}|"
+            r"\w+\s+\d{1,2},?\s+(?:19|20)\d{2}|(?:FY\s*)?(?:19|20)\d{2}",
+            text,
+            re.I,
+        )
         if (
-            x0 >= label_end - 2
+            (x0 >= label_end - 2 or date_only)
             and re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text)
             and overlap > 0
             and not cells[column + 1]
@@ -154,6 +162,14 @@ def rows_table(page, number: int) -> dict | None:
     }
 
 
+def quiet_pymupdf():
+    """Route PyMuPDF notices to logging; on stdout they would corrupt the CLI's JSON."""
+    import pymupdf
+
+    pymupdf.set_messages(pylogging=True, pylogging_name="pymupdf")
+    pymupdf.no_recommend_layout()  # A plain print() otherwise, outside the message system.
+
+
 def extract_pdf(
     source: str | Path,
     output_dir: str | Path,
@@ -164,6 +180,8 @@ def extract_pdf(
     table_strategy: str = "lines",
 ) -> dict:
     import pymupdf
+
+    quiet_pymupdf()
 
     source = Path(source).expanduser().resolve()
     if not source.is_file() or source.suffix.lower() != ".pdf":

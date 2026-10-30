@@ -18,8 +18,10 @@ HEADING = re.compile(r"management.{0,3}s? discussion (?:and|&) analysis")
 # Titles that start the section after MD&A in Indian annual reports.
 NEXT_SECTION = re.compile(
     r"corporate governance|board.{0,3}s report|directors.{0,3} report|business responsibility|"
-    r"independent auditor|financial statements|shareholder information|notice of"
+    r"independent auditor|financial statements|shareholder information|notice of|"
+    r"risk management|sustainability|value creation|^esg\b"
 )
+MAX_SECTION_PAGES = 25
 MIN_WORDS, MAX_WORDS = 25, 220
 TOPICS = {
     "revenue": ["revenue", "top line", "topline", "sales"],
@@ -52,15 +54,51 @@ TOPICS = {
 }
 
 
-def heading_text(page) -> str:
-    return squash(" ".join(page.get_text("text", sort=True).split("\n")[:12]))[:400]
+def furniture(pdf) -> set[str]:
+    """Lines repeated at the top of many pages (navigation bars, running titles); page
+    numbers are ignored when comparing."""
+    counts: dict[str, int] = {}
+    for page in pdf:
+        lines = [squash(line) for line in page.get_text("text", sort=True).splitlines()]
+        for line in {re.sub(r"\d+", "", text).strip() for text in lines[:4] if text.strip()}:
+            counts[line] = counts.get(line, 0) + 1
+    floor = max(5, len(pdf) // 10)
+    return {line for line, count in counts.items() if count >= floor and line}
+
+
+def title_lines(page, repeated: set[str], count: int = 12) -> list[str]:
+    lines = []
+    for raw in page.get_text("text", sort=True).splitlines():
+        line = squash(raw)
+        if line and re.sub(r"\d+", "", line).strip() not in repeated:
+            lines.append(line)
+        if len(lines) == count:
+            break
+    return lines
+
+
+def heading_text(page, repeated: set[str] = frozenset()) -> str:
+    return " ".join(title_lines(page, repeated))[:400]
+
+
+def starts_next_section(page, repeated) -> bool:
+    """A short title line at the top of the page names a different report section."""
+    return any(
+        len(line.split()) <= 10 and NEXT_SECTION.search(line)
+        for line in title_lines(page, repeated, 4)
+    )
 
 
 def locate_section(pdf) -> list[int]:
-    """One-based pages of the MD&A: the longest run of pages carrying its heading, extended
-    over untitled continuation pages until the next section begins."""
+    """One-based pages of the MD&A. Usually the longest run of pages carrying its title as a
+    running header; some reports title only the first page, so the section then runs from
+    there to the next section's title. Either way, continuation pages are included."""
+    repeated = furniture(pdf)
     hits = [
-        number for number, page in enumerate(pdf, start=1) if HEADING.search(heading_text(page))
+        number
+        for number, page in enumerate(pdf, start=1)
+        if HEADING.search(heading_text(page, repeated))
+        and "contents" not in heading_text(page, repeated)[:200]
     ]
     runs, current = [], []
     for number in hits:
@@ -73,11 +111,11 @@ def locate_section(pdf) -> list[int]:
     if not runs:
         return []
     run = max(runs, key=len)
-    if len(run) < 2:
-        return []
+    # Titled on every page: allow two untitled pages after; titled once: up to the cap.
+    limit = 2 if len(run) >= 2 else MAX_SECTION_PAGES - 1
     last = run[-1]
-    for number in range(run[-1] + 1, min(run[-1] + 3, len(pdf) + 1)):
-        if NEXT_SECTION.search(heading_text(pdf[number - 1])):
+    for number in range(run[-1] + 1, min(run[-1] + limit + 1, len(pdf) + 1)):
+        if starts_next_section(pdf[number - 1], repeated):
             break
         last = number
     return list(range(run[0], last + 1))

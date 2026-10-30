@@ -405,3 +405,18 @@ def test_agent_reports_each_step_as_it_happens(service, tmp_path):
     assert len(snapshots) >= 6
     log = json.loads(open(answer.data["run_log"]).read())
     assert log["steps"] == final
+
+
+def test_repeated_empty_searches_are_cut_short(service, tmp_path):
+    search = ("search_filings", {"query": "segment revenue", "company": "Infosys"})
+    provider = ScriptedProvider(
+        [search, search, search, ("finish", finish(gaps=["missing_commentary"]))]
+    )
+    answer = run_agent(
+        service, "Which Infosys segment grew most in FY25?", provider, log_dir=tmp_path
+    )
+    assert answer.status == "not_found"
+    third = json.loads(
+        [m for m in provider.messages if m.get("type") == "function_call_output"][2]["output"]
+    )
+    assert third["message"].startswith("2 searches in a row found nothing")
