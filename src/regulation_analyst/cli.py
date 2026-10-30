@@ -33,6 +33,10 @@ def parser():
     )
     commands.add_parser("coverage", help="Inspect reviewed company coverage")
     commands.add_parser("metrics", help="Inspect supported metric definitions")
+    api = commands.add_parser("api", help="Run the HTTP API for the web frontend")
+    api.add_argument("--host", default="127.0.0.1")
+    api.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    api.add_argument("--openapi", type=Path, help="Write the OpenAPI schema to this file and exit")
     serve = commands.add_parser("serve", help="Run read-only MCP over stdio")
     serve.add_argument(
         "--allow-ingest",
@@ -440,6 +444,32 @@ def main(argv=None) -> int:
                 for key in ("status", "artifact_directory", "source_sha256", "page_count")
             }
             payload["extracted_pages"] = len(artifact["pages"])
+        elif args.command == "api":
+            from .api import Settings, create_app
+
+            origins = os.environ.get("REGULATION_CORS_ORIGINS", "")
+            settings = Settings(
+                database=Path(args.db),
+                token=os.environ.get("REGULATION_API_TOKEN", "x" * 16 if args.openapi else ""),
+                cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
+                data_dir=Path(os.environ.get("REGULATION_DATA_DIR", "data")),
+                artifacts_dir=Path(os.environ.get("REGULATION_ARTIFACTS_DIR", "artifacts")),
+            )
+            if args.openapi:
+                args.openapi.parent.mkdir(parents=True, exist_ok=True)
+                args.openapi.write_text(json.dumps(create_app(settings).openapi(), indent=2) + "\n")
+                print(json.dumps({"status": "ok", "openapi": str(args.openapi)}))
+                return 0
+            if not Path(args.db).is_file():
+                # A fresh deployment starts with the bundled, source-checked corpus.
+                store = Store(args.db, readonly=False)
+                for fixture in ("demo.json", "research-expansion.json"):
+                    path = files("regulation_analyst").joinpath(f"fixtures/{fixture}")
+                    store.import_bundle(Bundle.model_validate_json(path.read_text()))
+            import uvicorn
+
+            uvicorn.run(create_app(settings), host=args.host, port=args.port, log_level="info")
+            return 0
         elif args.command == "serve":
             from .mcp_server import create_server
 
