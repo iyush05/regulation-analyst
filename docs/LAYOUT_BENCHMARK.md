@@ -25,6 +25,10 @@ time.
 .venv/bin/regulation-analyst benchmark-layout --layout auto
 ```
 
+Model layouts (`llm`, `auto`) run on four reports by default to save tokens: Infosys, Sun
+Pharma, HCLTech, and Bharti Airtel. Add `--all` for all 11, or `--only` to choose. Compare them
+with the rules rows for the same companies below.
+
 Results are written to `artifacts/layout-benchmark/results-<layout>.{json,md}`.
 
 ## Baseline: label rules (30 October 2026)

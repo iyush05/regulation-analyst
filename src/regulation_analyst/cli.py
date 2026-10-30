@@ -15,6 +15,11 @@ from .models import Bundle
 from .service import ResearchService
 from .store import Store
 
+# Model layouts cost tokens, so by default they run on four reports: one the rules already read
+# fully, plus one of each failure the rules show (a wrong pick, a continuation page, and a
+# side-by-side layout).
+MODEL_BENCHMARK_REPORTS = ["infosys", "sunpharma", "hcltech", "airtel"]
+
 
 def parser():
     root = argparse.ArgumentParser(description="Traceable research on Indian company financials")
@@ -40,7 +45,14 @@ def parser():
     bench.add_argument("--gold", type=Path, default=Path("benchmarks/layout-gold.json"))
     bench.add_argument("--archive", type=Path, default=Path("data/benchmark/sources"))
     bench.add_argument("--work", type=Path, default=Path("artifacts/layout-benchmark"))
-    bench.add_argument("--only", nargs="+", help="Company IDs from the gold file")
+    bench.add_argument(
+        "--only",
+        nargs="+",
+        help="Company IDs from the gold file (model layouts default to "
+        + ", ".join(MODEL_BENCHMARK_REPORTS)
+        + ")",
+    )
+    bench.add_argument("--all", action="store_true", help="Run every report in the gold file")
     bench.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     bench.add_argument("--max-tokens", type=int, default=200_000, help="Per report")
     check = commands.add_parser(
@@ -474,17 +486,17 @@ def main(argv=None) -> int:
                 ok: bool
 
             provider = chat_provider(args.model)
-            budget = UsageBudget(1000)
+            budget = UsageBudget(2000)
             payload = {
                 "provider": os.environ.get("REGULATION_MODEL_PROVIDER", "openai"),
                 "model": args.model,
                 "region": getattr(provider, "region", None),
             }
             reply = provider.structured(
-                "Set ok to true.",
-                [{"type": "input_text", "text": "Check."}],
+                "Answer with ok set to true.",
+                [{"type": "input_text", "text": "Connectivity check."}],
                 Reply,
-                max_output_tokens=100,
+                max_output_tokens=200,
                 timeout=60,
                 budget=budget,
             )
@@ -501,7 +513,9 @@ def main(argv=None) -> int:
                 args.work,
                 provider=provider,
                 max_tokens=args.max_tokens,
-                only=args.only,
+                only=None
+                if args.all
+                else args.only or (MODEL_BENCHMARK_REPORTS if args.layout != "rules" else None),
             )
             args.work.mkdir(parents=True, exist_ok=True)
             target = args.work / f"results-{args.layout}"
