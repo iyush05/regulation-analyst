@@ -141,9 +141,23 @@ class ResearchService:
         metrics = metrics or ["revenue", "operating_profit", "profit_owners"]
         if not metrics or len(metrics) > 10:
             raise ResearchError("invalid_request", "Request between 1 and 10 metrics")
-        rows, missing = [], []
+        rows, missing, derived = [], [], []
+        for metric in dict.fromkeys(metrics):
+            if metric not in REPORTED_METRICS and metric in FORMULAS:
+                # A calculated measure is never a printed line item; say how to compute it.
+                inputs = DERIVED_METRICS.get(metric, (FORMULAS[metric]["inputs"],))[0]
+                derived.append(
+                    {
+                        "metric": metric,
+                        "note": f"{metric} is calculated, not reported: get_table the inputs "
+                        f"{inputs}, then calculate formula '{metric}' with their fact IDs in "
+                        "that order",
+                    }
+                )
         for year in dict.fromkeys(year_number(y) for y in years):
             for metric in dict.fromkeys(metrics):
+                if any(d["metric"] == metric for d in derived):
+                    continue
                 try:
                     fact = self.store.select_fact(
                         company_id,
@@ -169,7 +183,7 @@ class ResearchService:
             "partial"
             if rows and missing
             else "ok"
-            if rows
+            if rows or (derived and not missing)
             else ("ambiguous" if any(m["status"] == "ambiguous" for m in missing) else "not_found")
         )
         return self.result(
@@ -177,6 +191,7 @@ class ResearchService:
             "Financial facts in INR crore; each source states its trust level",
             facts=rows,
             missing=missing,
+            derived=derived,
             scope=scope,
             basis=basis,
             restatement_policy=policy,

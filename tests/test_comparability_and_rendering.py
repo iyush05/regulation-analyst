@@ -140,3 +140,46 @@ def test_changes_and_indian_grouping():
     assert change_text("100", "125", "INR_crore") == "+25.00%"
     assert change_text("5", "5", "percent") == "0.00 pp"
     assert indian(Decimal("1234567890.5")) == "1,23,45,67,890.50"
+
+
+def test_calculated_measures_are_explained_not_reported_missing(tmp_path, synthetic_bundle):
+    from test_expanded_metrics import rows
+
+    store = Store(tmp_path / "e.sqlite3", readonly=False)
+    store.import_bundle(synthetic_bundle(rows()))
+    service = ResearchService(Store(store.path))
+    table = service.call(
+        "get_table", company="alpha", years=["FY25"], metrics=["ebitda", "finance_costs"]
+    )
+    assert table.status == "ok" and table.data["missing"] == []
+    (note,) = table.data["derived"]
+    assert "ebitda is calculated, not reported" in note["note"]
+    assert "'profit_before_tax', 'finance_costs', 'other_income'" in note["note"]
+
+    ledger = Ledger(service.store, Selection(), {"alpha"}, [2025])
+    # A stale gap, as when a model first asked for EBITDA as if it were printed.
+    ledger.absorb({"missing": [{"metric": "ebitda", "fiscal_year": 2025, "reason": "No ebitda"}]})
+    inputs = ["profit_before_tax", "finance_costs", "other_income", "depreciation_amortisation"]
+    ids = [f"alpha-{m}-2025" for m in inputs]
+    calc = service.call("calculate", formula="ebitda", fact_ids=ids)
+    ledger.absorb(
+        service.call("get_table", company="alpha", years=["FY25"], metrics=inputs).model_dump(
+            mode="json"
+        )["data"]
+    )
+    ledger.absorb(calc.model_dump(mode="json")["data"])
+    rendered = ledger.render(
+        FinishArgs(
+            fact_ids=ids,
+            calculation_ids=[calc.data["calculation"]["id"]],
+            passage_ids=[],
+            provision_ids=[],
+            gaps=["missing_financial_data"],
+        )
+    )["answer"]
+    assert "| alpha | ebitda | ₹210 cr [1] |" in rendered
+    assert (
+        "Method: ebitda = profit_before_tax + finance_costs - other_income + "
+        "depreciation_amortisation. Calculated by the system from reported figures"
+    ) in rendered
+    assert "Gaps" not in rendered
