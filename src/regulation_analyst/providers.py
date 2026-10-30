@@ -357,14 +357,16 @@ class BedrockProvider:
         self, messages: list, tools: list, *, max_output_tokens: int, timeout: float
     ) -> dict:
         system, converted = self.to_converse(messages)
+        # Current Claude models (e.g. Sonnet 5.5, Opus 5.5) reject forced tool choice, so the
+        # tool call is requested by instruction; the agent rejects any turn without one.
+        system.append({"text": "Always respond by calling exactly one of the provided tools."})
         return self.from_converse(
             self.converse(
                 {
                     "system": system,
                     "messages": converted,
                     "inferenceConfig": {"maxTokens": max_output_tokens},
-                    # The agent must answer with a tool call on every turn.
-                    "toolConfig": {"tools": self.tool_specs(tools), "toolChoice": {"any": {}}},
+                    "toolConfig": {"tools": self.tool_specs(tools), "toolChoice": {"auto": {}}},
                 },
                 timeout,
             )
@@ -386,7 +388,7 @@ class BedrockProvider:
         web_search: bool = False,
         budget: UsageBudget | None = None,
     ) -> T:
-        """One schema-bound answer via a forced tool call; invalid output is rejected."""
+        """One schema-bound answer via the submit tool; missing or invalid output is rejected."""
         if web_search:
             raise ResearchError(
                 "invalid_request",
@@ -410,13 +412,14 @@ class BedrockProvider:
         }
         response = self.converse(
             {
-                "system": [{"text": instructions}],
+                "system": [
+                    {"text": instructions},
+                    {"text": "Respond only by calling the submit tool with your answer."},
+                ],
                 "messages": [{"role": "user", "content": blocks or [{"text": "(no input)"}]}],
                 "inferenceConfig": {"maxTokens": max_output_tokens},
-                "toolConfig": {
-                    "tools": self.tool_specs([tool]),
-                    "toolChoice": {"tool": {"name": "submit"}},
-                },
+                # Not forced: current Claude models reject forced tool choice (HTTP 400).
+                "toolConfig": {"tools": self.tool_specs([tool]), "toolChoice": {"auto": {}}},
             },
             timeout,
         )

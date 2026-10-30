@@ -21,7 +21,7 @@ time.
 ```sh
 # PDFs are archived under data/benchmark/sources (see layout-reports.json for the URLs).
 .venv/bin/regulation-analyst benchmark-layout --layout rules
-.venv/bin/regulation-analyst benchmark-layout --layout llm     # needs OPENAI_API_KEY and model
+.venv/bin/regulation-analyst benchmark-layout --layout llm     # needs a configured model (OpenAI or Bedrock)
 .venv/bin/regulation-analyst benchmark-layout --layout auto
 ```
 

@@ -77,7 +77,7 @@ def test_agent_messages_translate_both_ways():
     )
     assert sent["auth"] == "Bearer secret"
     body = sent["body"]
-    assert body["system"] == [{"text": "Rules"}]
+    assert body["system"][0] == {"text": "Rules"}
     assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
     assert body["messages"][1]["content"][0]["toolUse"] == {
         "toolUseId": "c1",
@@ -85,7 +85,8 @@ def test_agent_messages_translate_both_ways():
         "input": {},
     }
     assert body["messages"][2]["content"][0]["toolResult"]["toolUseId"] == "c1"
-    assert body["toolConfig"]["toolChoice"] == {"any": {}}
+    # Not forced: current Claude models reject forced tool choice.
+    assert body["toolConfig"]["toolChoice"] == {"auto": {}}
     assert body["toolConfig"]["tools"][0]["toolSpec"]["name"] == "get_table"
     assert body["inferenceConfig"] == {"maxTokens": 500}
     assert shaped["output"] == [
@@ -121,7 +122,8 @@ def test_structured_output_uses_a_forced_tool_and_validates():
         name="Infosys", year=2025
     )
     body = requests[0]["body"]
-    assert body["toolConfig"]["toolChoice"] == {"tool": {"name": "submit"}}
+    assert body["toolConfig"]["toolChoice"] == {"auto": {}}
+    assert "submit tool" in body["system"][1]["text"]
     schema = body["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     assert schema["required"] == ["name", "year"] and schema["additionalProperties"] is False
     assert body["messages"][0]["content"][1]["image"]["format"] == "png"
