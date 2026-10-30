@@ -93,8 +93,13 @@ def test_agent_multistep_recomputes_and_renders_citations(service, tmp_path):
     assert "#page=346" in answer.data["answer"]
     assert answer.data["calculations"][0] == result
     assert len(answer.data["claims"]) == 2
-    assert any(message.get("type") == "function_call_output" for message in provider.messages)
+    outputs = [m["output"] for m in provider.messages if m.get("type") == "function_call_output"]
+    assert outputs
+    # The model sees IDs, values, units, and trust; locators stay with the server's ledger.
+    assert all('"source"' not in output and "#page=" not in output for output in outputs)
+    assert any('"trust":"reviewed"' in output for output in outputs)
     report = json.loads(next(tmp_path.glob("*.json")).read_text())
+    assert "#page=" in json.dumps(report["trace"])
     assert report["usage"]["total_tokens"] == 60
     assert report["model"].startswith("controlled-test-double")
 

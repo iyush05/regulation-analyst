@@ -116,6 +116,42 @@ def tool_schemas():
     ]
 
 
+FACT_FIELDS = ("id", "company_id", "metric", "fiscal_year", "scope", "basis", "revision", "value")
+CALCULATION_FIELDS = (
+    "id",
+    "formula_id",
+    "value",
+    "display_value",
+    "unit",
+    "input_fact_ids",
+    "elapsed_years",
+)
+
+
+def for_model(value):
+    """What the model needs to choose evidence: IDs, values, units, and trust, not locators.
+
+    The ledger and run log keep complete tool results; citations are rendered by the server,
+    so source URLs, cell boxes, and review metadata would only cost tokens on every turn.
+    """
+    if isinstance(value, list):
+        return [for_model(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if "raw_value" in value and "metric" in value and "id" in value:
+        compact = {k: value[k] for k in FACT_FIELDS if k in value}
+        compact["unit"] = value.get("normalized_unit", value.get("unit"))
+        compact["trust"] = value.get("source", {}).get("trust", "reviewed")
+        return compact
+    if "formula_id" in value and "input_fact_ids" in value:
+        return {k: value[k] for k in CALCULATION_FIELDS if k in value}
+    return {
+        key: for_model(item)
+        for key, item in value.items()
+        if key not in ("source", "corpus_version", "locator")
+    }
+
+
 class Budgets(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_iterations: int = Field(default=12, ge=1, le=30)
@@ -377,7 +413,11 @@ def run_agent(
                 or usage["total_tokens"] >= budgets.max_total_tokens
             ):
                 raise ResearchError(
-                    "not_found", "Agent stopped at its time, context, or token budget"
+                    "not_found",
+                    f"Agent stopped at its budget: {usage['total_tokens']:,} of "
+                    f"{budgets.max_total_tokens:,} tokens, "
+                    f"{time.monotonic() - started:.0f} of {budgets.max_seconds:.0f} s, "
+                    f"{len(canonical(messages)):,} of {budgets.max_context_chars:,} context chars",
                 )
             if service.store.version != version:
                 raise ResearchError("invalid_request", "Corpus changed during the research run")
@@ -395,7 +435,13 @@ def run_agent(
                 time.monotonic() - started > budgets.max_seconds
                 or usage["total_tokens"] > budgets.max_total_tokens
             ):
-                raise ResearchError("not_found", "Agent exceeded its time or token budget")
+                raise ResearchError(
+                    "not_found",
+                    f"Agent exceeded its budget: {usage['total_tokens']:,} of "
+                    f"{budgets.max_total_tokens:,} tokens, "
+                    f"{time.monotonic() - started:.0f} of {budgets.max_seconds:.0f} s; "
+                    "raise --max-tokens or --max-seconds",
+                )
             output = response.get("output", [])
             if len(canonical(output)) > budgets.max_context_chars:
                 raise ResearchError("not_found", "Model output exceeded its context budget")
@@ -477,7 +523,7 @@ def run_agent(
                     {
                         "type": "function_call_output",
                         "call_id": call["call_id"],
-                        "output": canonical(tool_result),
+                        "output": canonical(for_model(tool_result)),
                     }
                 )
             else:

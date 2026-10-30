@@ -48,6 +48,9 @@ def parser():
     agent.add_argument("--log-dir", type=Path, default=Path("artifacts/runs"))
     agent.add_argument("--max-tool-calls", type=int, default=24)
     agent.add_argument("--max-seconds", type=float, default=180)
+    agent.add_argument(
+        "--max-tokens", type=int, default=60_000, help="Total model tokens across all turns"
+    )
     index = commands.add_parser(
         "index", help="Build a real embedding index using the configured provider"
     )
@@ -482,7 +485,9 @@ def main(argv=None) -> int:
                     args.question,
                     OpenAIProvider(model=args.model),
                     budgets=Budgets(
-                        max_tool_calls=args.max_tool_calls, max_seconds=args.max_seconds
+                        max_tool_calls=args.max_tool_calls,
+                        max_seconds=args.max_seconds,
+                        max_total_tokens=args.max_tokens,
                     ),
                     log_dir=args.log_dir,
                     selection=Selection(
