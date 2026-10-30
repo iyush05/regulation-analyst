@@ -25,6 +25,8 @@ from .review import squash
 
 # Integrated annual reports often exceed 50 MB; this is the acquisition module's ceiling.
 MAX_REPORT_BYTES = 200_000_000
+# Some sites throttle automated downloads to a crawl; past this, a browser download is faster.
+DOWNLOAD_SECONDS = 180
 # Aggregators, file hosts, and search sites are never treated as a company's official domain.
 NOT_OFFICIAL = (
     "screener.in",
@@ -223,8 +225,9 @@ def download(
     opener=None,
     manual=False,
     max_bytes=MAX_REPORT_BYTES,
+    max_seconds=DOWNLOAD_SECONDS,
 ) -> list[dict]:
-    """Plain download attempts; refused or failed links are handed to the browser."""
+    """Plain download attempts; refused, failed, or throttled links go to the browser."""
     blocked = []
     for item in planned["items"]:
         key = item_key(item["fiscal_year"])
@@ -239,6 +242,14 @@ def download(
                     archive,
                     client=client,
                     extra_domains=(planned["domain"],),
+                    on_progress=lambda size, total, item=item, key=key: store.record_job(
+                        planned["key"],
+                        key,
+                        "acquire",
+                        "running",
+                        {**detail(item), "downloaded_bytes": size, "total_bytes": total},
+                    ),
+                    max_seconds=max_seconds,
                 )
                 item.update(snapshot_path=archived["snapshot_path"], sha256=archived["sha256"])
                 store.record_job(planned["key"], key, "acquire", "done", detail(item))
@@ -520,6 +531,7 @@ def ingest(
     budget=None,
     remap=False,
     max_bytes=MAX_REPORT_BYTES,
+    download_seconds=DOWNLOAD_SECONDS,
     do_import=True,
     llm_resolve=False,
 ) -> dict:
@@ -537,6 +549,7 @@ def ingest(
         opener=opener,
         manual=manual,
         max_bytes=max_bytes,
+        max_seconds=download_seconds,
     )
     deadline = time.monotonic() + watch_seconds
     while blocked and time.monotonic() < deadline:

@@ -291,3 +291,44 @@ def test_remap_into_another_folder_never_deletes_the_originals(tmp_path, paths):
     again = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), remap=True, **elsewhere)
     assert all(Path(p).is_file() for p in originals)
     assert again["filings"][0]["candidates"][0].startswith(str(tmp_path / "elsewhere"))
+
+
+def test_downloads_report_progress_and_give_up_when_throttled(tmp_path, paths, monkeypatch):
+    from regulation_analyst import acquisition
+    from regulation_analyst.acquisition import SourceRequest, acquire
+
+    clock = iter(range(0, 1000, 2))  # Each reading of the clock advances two seconds.
+    monkeypatch.setattr(acquisition.time, "monotonic", lambda: next(clock))
+    body = b"%PDF-1.7\n" + b"x" * 400_000
+
+    def slow_site(request):
+        return httpx.Response(200, content=body, headers={"content-length": str(len(body))})
+
+    seen = []
+    with pytest.raises(ResearchError, match="Download too slow") as error:
+        acquire(
+            SourceRequest(id="slow", url=AR25),
+            tmp_path / "archive",
+            client=httpx.Client(transport=httpx.MockTransport(slow_site)),
+            extra_domains=("synthetic.example",),
+            on_progress=lambda size, total: seen.append((size, total)),
+            max_seconds=5,
+        )
+    assert "throttling automated downloads" in str(error.value)
+    assert seen and seen[0] == (65536, len(body))
+    assert not list((tmp_path / "archive").glob(".download-*"))  # No partial file left.
+
+    store = Store(tmp_path / "db.sqlite3", readonly=False)
+    result = ingest(
+        store,
+        "Synthetic",
+        ["FY25"],
+        provider=Discovery(),
+        client=httpx.Client(transport=httpx.MockTransport(slow_site)),
+        opener=lambda url: None,
+        download_seconds=5,
+        **paths,
+    )
+    (filing,) = result["filings"]
+    assert filing["status"] == "needs_manual_pdf"
+    assert "Download too slow" in filing["download_error"]

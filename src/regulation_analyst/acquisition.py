@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -58,7 +59,11 @@ def acquire(
     local_pdf: str | Path | None = None,
     client: httpx.Client | None = None,
     extra_domains: tuple[str, ...] = (),
+    on_progress=None,
+    max_seconds: float | None = None,
 ) -> dict:
+    """`on_progress(bytes_so_far, total_or_None)` reports downloads about once a second;
+    `max_seconds` gives up on a download that is too slow to finish in reasonable time."""
     validate_official_url(source.url, extra_domains)
     root = Path(archive).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -71,11 +76,22 @@ def acquire(
     client = client or httpx.Client(timeout=30, follow_redirects=False)
     try:
         with os.fdopen(handle, "wb") as target:
+            started, reported = time.monotonic(), 0.0
 
-            def consume(chunks):
-                nonlocal size
+            def consume(chunks, total=None):
+                nonlocal size, reported
                 for chunk in chunks:
                     size += len(chunk)
+                    elapsed = time.monotonic() - started
+                    if on_progress and elapsed - reported >= 1:
+                        reported = elapsed
+                        on_progress(size, total)
+                    if max_seconds is not None and elapsed > max_seconds:
+                        raise ResearchError(
+                            "not_found",
+                            f"Download too slow: {size / 1e6:.1f} MB in {elapsed:.0f} s; "
+                            "the site is throttling automated downloads",
+                        )
                     if size > source.max_bytes:
                         raise ResearchError(
                             "invalid_request", "Source exceeds the configured download size limit"
@@ -103,7 +119,11 @@ def acquire(
                             final_url = urljoin(final_url, location)
                             continue
                         response.raise_for_status()
-                        consume(response.iter_bytes(chunk_size=65536))
+                        length = response.headers.get("content-length")
+                        consume(
+                            response.iter_bytes(chunk_size=65536),
+                            int(length) if length and length.isdigit() else None,
+                        )
                         break
                 else:
                     raise ResearchError("not_found", "Official source exceeded the redirect limit")

@@ -1,4 +1,4 @@
-import { duration } from "./useJob";
+import { downloaded, duration } from "./useJob";
 
 export interface AgentStep {
   kind: "model" | "tool";
@@ -8,7 +8,7 @@ export interface AgentStep {
   summary?: string;
   started_at: number;
   finished_at?: number;
-  detail?: { item: string; stage: string; status: string }[];
+  detail?: { item: string; stage: string; status: string; detail?: unknown }[];
 }
 
 const ICON: Record<string, string> = {
@@ -48,8 +48,10 @@ export function Steps({ steps, now }: { steps: AgentStep[]; now: number }) {
                     .filter((d) => d.item !== "company")
                     .map((d) => (
                       <li key={d.item}>
-                        {d.item.replace("-annual-report", " annual report")}: {d.stage} ·{" "}
-                        {d.status.replaceAll("_", " ")}
+                        {d.item.replace("-annual-report", " annual report")}:{" "}
+                        {d.stage === "acquire" && d.status === "running" ? "downloading" : d.stage}{" "}
+                        · {d.status.replaceAll("_", " ")}
+                        {downloaded(d.detail)}
                       </li>
                     ))}
                 </ul>

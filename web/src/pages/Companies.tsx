@@ -8,7 +8,7 @@ import {
   type IngestResult,
   type Job,
 } from "../api/client";
-import { elapsed, isRunning, useJob, useNow } from "../components/useJob";
+import { downloaded, elapsed, isRunning, useJob, useNow } from "../components/useJob";
 
 const YEAR_CHOICES = ["FY22", "FY23", "FY24", "FY25", "FY26"];
 
@@ -201,6 +201,7 @@ function Steps({ job }: { job: Job }) {
       {steps.map((step) => (
         <li key={String(step.item)}>
           {String(step.item)}: {String(step.stage)} · {String(step.status)}
+          {downloaded(step.detail)}
         </li>
       ))}
     </ul>

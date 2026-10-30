@@ -27,6 +27,14 @@ export function useNow(active: boolean): number {
   return now;
 }
 
+/** Download progress recorded by the pipeline, e.g. "8.4 MB of 52.0 MB". */
+export function downloaded(detail: unknown): string {
+  const d = detail as { downloaded_bytes?: number; total_bytes?: number | null } | undefined;
+  if (!d?.downloaded_bytes) return "";
+  const mb = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
+  return ` · ${mb(d.downloaded_bytes)}${d.total_bytes ? ` of ${mb(d.total_bytes)}` : ""}`;
+}
+
 export function duration(seconds: number): string {
   const whole = Math.max(0, Math.round(seconds));
   return whole < 60 ? `${whole}s` : `${Math.floor(whole / 60)}m ${whole % 60}s`;
