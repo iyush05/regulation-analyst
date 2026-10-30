@@ -199,7 +199,8 @@ class BedrockProvider:
 
     Authenticates with a Bedrock API key (AWS_BEARER_TOKEN_BEDROCK) as a bearer token. The
     agent's tool-calling messages are translated to Converse and back; structured output uses
-    a forced tool call. Bedrock offers no web search, so company discovery needs explicit links.
+    a submit tool the model is instructed to call. Bedrock offers no web search, so company
+    discovery needs explicit links.
     """
 
     def __init__(

@@ -474,17 +474,17 @@ def main(argv=None) -> int:
                 ok: bool
 
             provider = chat_provider(args.model)
-            budget = UsageBudget(2000)
+            budget = UsageBudget(1000)
             payload = {
                 "provider": os.environ.get("REGULATION_MODEL_PROVIDER", "openai"),
                 "model": args.model,
                 "region": getattr(provider, "region", None),
             }
             reply = provider.structured(
-                "Answer with ok set to true.",
-                [{"type": "input_text", "text": "Connectivity check."}],
+                "Set ok to true.",
+                [{"type": "input_text", "text": "Check."}],
                 Reply,
-                max_output_tokens=200,
+                max_output_tokens=100,
                 timeout=60,
                 budget=budget,
             )
