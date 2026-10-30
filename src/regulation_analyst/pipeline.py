@@ -25,8 +25,9 @@ from .review import squash
 
 # Integrated annual reports often exceed 50 MB; this is the acquisition module's ceiling.
 MAX_REPORT_BYTES = 200_000_000
-# Some sites throttle automated downloads to a crawl; past this, a browser download is faster.
-DOWNLOAD_SECONDS = 180
+# No overall time limit by default: some sites are slow for browsers too, and progress is
+# shown while downloading. A stalled connection still fails on the client's 30 s read timeout.
+DOWNLOAD_SECONDS = None
 # Aggregators, file hosts, and search sites are never treated as a company's official domain.
 NOT_OFFICIAL = (
     "screener.in",
@@ -227,7 +228,8 @@ def download(
     max_bytes=MAX_REPORT_BYTES,
     max_seconds=DOWNLOAD_SECONDS,
 ) -> list[dict]:
-    """Plain download attempts; refused, failed, or throttled links go to the browser."""
+    """Plain download attempts; refused or failed links (and, when `max_seconds` is set,
+    downloads that exceed it) go to the browser."""
     blocked = []
     for item in planned["items"]:
         key = item_key(item["fiscal_year"])

@@ -332,3 +332,16 @@ def test_downloads_report_progress_and_give_up_when_throttled(tmp_path, paths, m
     (filing,) = result["filings"]
     assert filing["status"] == "needs_manual_pdf"
     assert "Download too slow" in filing["download_error"]
+
+
+def test_slow_downloads_finish_by_default(tmp_path, paths, monkeypatch):
+    from regulation_analyst import acquisition
+
+    clock = iter(range(0, 100_000, 60))  # A minute passes on every chunk.
+    monkeypatch.setattr(acquisition.time, "monotonic", lambda: next(clock))
+    store = Store(tmp_path / "db.sqlite3", readonly=False)
+    pdf = report(tmp_path / "fy25.pdf").read_bytes()
+    result = ingest(
+        store, "Synthetic", ["FY25"], provider=Discovery(), client=site(pdf, refused=()), **paths
+    )
+    assert result["filings"][0]["status"] == "imported"
