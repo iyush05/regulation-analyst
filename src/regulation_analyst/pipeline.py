@@ -546,7 +546,7 @@ def ingest(
     download_seconds=DOWNLOAD_SECONDS,
     do_import=True,
     llm_resolve=False,
-    layout="rules",
+    layout="cross",
 ) -> dict:
     wanted = sorted({year_number(y) for y in years})
     if not wanted or len(wanted) > 10:

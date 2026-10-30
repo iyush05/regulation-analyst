@@ -17,7 +17,7 @@ from .errors import ResearchError
 from .ingestion import extract_pdf
 from .metrics import DEFINITIONS
 from .models import Company, Document
-from .numbers import parse_number
+from .numbers import normalize, parse_number, resolution
 from .review import MappingPlan, build_candidates, squash
 
 STATEMENTS = {
@@ -585,6 +585,75 @@ def core_covered(report) -> bool:
     return all(metric in mapped for metric in CORE)
 
 
+def reading_key(fact: dict) -> tuple:
+    return (fact["metric"], fact["scope"], fact["basis"], fact["fiscal_year"], fact["revision"])
+
+
+def cross_check(rules: dict, model: dict) -> dict:
+    """Combine two independent readings of one report so that each checks the other.
+
+    The rules reading is kept, and each of its figures carries the model's value for the same
+    line item and year, if the model found it; the gates queue a figure whose two readings
+    differ. Figures only the model found are added, and still pass every other gate.
+    """
+    first = {reading_key(f): f for c in rules["candidates"] for f in c["bundle"]["facts"]}
+    second = {reading_key(f): f for c in model["candidates"] for f in c["bundle"]["facts"]}
+    candidates, extractions = [], []
+    for candidate, extraction in zip(
+        rules["candidates"], rules["report"]["extractions"], strict=True
+    ):
+        readings = {
+            fact["id"]: {"raw_value": other["raw_value"], "unit": other["unit"]}
+            for fact in candidate["bundle"]["facts"]
+            if (other := second.get(reading_key(fact)))
+        }
+        candidates.append({**candidate, "second_readings": readings})
+        extractions.append(extraction)
+    for candidate, extraction in zip(
+        model["candidates"], model["report"]["extractions"], strict=True
+    ):
+        facts = [f for f in candidate["bundle"]["facts"] if reading_key(f) not in first]
+        if facts:
+            candidates.append({**candidate, "bundle": {**candidate["bundle"], "facts": facts}})
+            extractions.append(extraction)
+    agreement = {"agreed": 0, "disagreed": [], "rules_only": 0, "model_only": 0}
+    for key in first.keys() | second.keys():
+        if key not in second:
+            agreement["rules_only"] += 1
+        elif key not in first:
+            agreement["model_only"] += 1
+        elif same_amount(first[key], second[key]):
+            agreement["agreed"] += 1
+        else:
+            agreement["disagreed"].append(
+                {
+                    "metric": key[0],
+                    "scope": key[1],
+                    "fiscal_year": key[3],
+                    "rules": first[key]["raw_value"],
+                    "model": second[key]["raw_value"],
+                }
+            )
+    added = {(p["scope"], p["metric"]) for p in rules["report"]["provenance"]}
+    report = {
+        **rules["report"],
+        "layout": "cross",
+        "extractions": extractions,
+        "provenance": rules["report"]["provenance"]
+        + [p for p in model["report"]["provenance"] if (p["scope"], p["metric"]) not in added],
+        "issues": rules["report"]["issues"] + model["report"]["issues"],
+        "agreement": agreement,
+    }
+    return {"candidates": candidates, "report": report}
+
+
+def same_amount(a: dict, b: dict) -> bool:
+    tolerance = resolution(a["raw_value"], a["unit"]) + resolution(b["raw_value"], b["unit"])
+    return abs(normalize(a["raw_value"], a["unit"]) - normalize(b["raw_value"], b["unit"])) <= (
+        tolerance
+    )
+
+
 def automap(
     pdf: str | Path,
     company: Company,
@@ -599,8 +668,29 @@ def automap(
 
     layout "rules" uses label rules (the model only fills missing rows when a provider is
     given); "llm" lets the model choose pages, rows, and year columns, each verified by code;
-    "auto" uses rules and falls back to "llm" when core consolidated items are missing.
+    "auto" uses rules and falls back to "llm" when core consolidated items are missing;
+    "cross" runs both and queues any figure on which they disagree (see cross_check).
     """
+    if layout == "cross":
+        if provider is None:
+            raise ResearchError("invalid_request", "The cross layout needs a configured model")
+        try:
+            rules = automap(pdf, company, document, output_dir, layout="rules")
+        except ResearchError:
+            rules = None  # Rules found nothing; the model may still read the layout.
+        try:
+            model = automap(
+                pdf, company, document, output_dir, provider=provider, budget=budget, layout="llm"
+            )
+        except ResearchError as exc:
+            if rules is None:
+                raise
+            # Without a second reading nothing is cross-checked; the other gates still apply.
+            report = {**rules["report"], "layout": "rules", "model_error": str(exc)[:300]}
+            return {**rules, "report": report}
+        if rules is None:
+            return {**model, "report": {**model["report"], "layout": "llm"}}
+        return cross_check(rules, model)
     if layout == "auto":
         try:
             rules = automap(pdf, company, document, output_dir, layout="rules")
@@ -626,7 +716,7 @@ def automap(
         chosen, name = (model, "llm") if better else (rules, "rules")
         return {**chosen, "report": {**chosen["report"], "layout": name}}
     if layout not in ("rules", "llm"):
-        raise ResearchError("invalid_request", "layout must be rules, llm, or auto")
+        raise ResearchError("invalid_request", "layout must be rules, llm, auto, or cross")
     if layout == "llm" and provider is None:
         raise ResearchError("invalid_request", "The llm layout needs a configured model")
     choose, location = None, None

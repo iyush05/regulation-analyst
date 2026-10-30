@@ -70,6 +70,7 @@ def setup(tmp_path):
         "inbox": tmp_path / "inbox",
         "extractions": tmp_path / "extractions",
         "candidates": tmp_path / "candidates",
+        "layout": "rules",  # These doubles only discover; layout reading is tested elsewhere.
     }
 
     def ingestor(refused=()):

@@ -110,6 +110,7 @@ def test_ingest_imports_commentary_that_answers_why_questions(tmp_path):
         inbox=tmp_path / "inbox",
         extractions=tmp_path / "extractions",
         candidates=tmp_path / "candidates",
+        layout="rules",
     )
     (filing,) = result["filings"]
     assert filing["commentary"] == {"section_pages": [2, 4], "passages": 4, "imported": 4}

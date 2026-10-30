@@ -9,6 +9,7 @@ from test_autoextract import YEARS_PL, page
 from regulation_analyst.autoextract import automap
 from regulation_analyst.benchmark import score_report
 from regulation_analyst.errors import ResearchError
+from regulation_analyst.gates import gate
 from regulation_analyst.llm_layout import Cache, locate
 from regulation_analyst.metrics import DEFINITIONS
 from regulation_analyst.models import Company, Document
@@ -247,3 +248,81 @@ def test_one_page_can_hold_two_statements_side_by_side(tmp_path):
         (1, "balance_sheet"),
         (1, "profit_loss"),
     ]
+
+
+class Misreader(Reader):
+    """Reads tax expense from the other-income row, so it disagrees with the label rules."""
+
+    identity = "controlled:misreader"
+
+    def structured(self, instructions, content, schema, **kwargs):
+        answer = super().structured(instructions, content, schema, **kwargs)
+        if schema.__name__ == "TableLayout":
+            rows = {r.metric: r.row for r in answer.rows}
+            for item in answer.rows:
+                if item.metric == "tax_expense":
+                    item.row = rows["revenue"] + 1  # "Other income, net"
+        return answer
+
+
+def gated(result):
+    accepted, queued = {}, {}
+    for candidate, extraction in zip(
+        result["candidates"], result["report"]["extractions"], strict=True
+    ):
+        outcome = gate(candidate, extraction=extraction["extraction"])
+        for fact in outcome["bundle"].facts if outcome["bundle"] else []:
+            evidence = next(e for e in outcome["bundle"].evidence if e.id == fact.evidence_id)
+            accepted[(fact.metric, fact.fiscal_year)] = evidence.checks
+        for item in outcome["queued"]:
+            queued[(item["metric"], item["fiscal_year"])] = [f["gate"] for f in item["failed"]]
+    return accepted, queued
+
+
+def test_cross_accepts_agreement_and_adds_what_only_the_model_found(tmp_path):
+    result = automap(
+        report_pdf(tmp_path / "ar.pdf"),
+        COMPANY,
+        DOCUMENT,
+        tmp_path / "x",
+        provider=Reader(),
+        layout="cross",
+    )
+    assert result["report"]["layout"] == "cross"
+    assert result["report"]["agreement"]["disagreed"] == []
+    accepted, queued = gated(result)
+    assert "layout_agreement" in accepted[("tax_expense", 2025)]  # Both read 9,500.
+    assert ("revenue", 2025) in accepted  # Only the model found it; other gates still ran.
+    assert ("total_income", 2025) in accepted  # Only the rules found it.
+    assert not queued
+
+
+def test_cross_queues_a_figure_the_two_readings_disagree_on(tmp_path):
+    result = automap(
+        report_pdf(tmp_path / "ar.pdf"),
+        COMPANY,
+        DOCUMENT,
+        tmp_path / "x",
+        provider=Misreader(),
+        layout="cross",
+    )
+    (disagreed, *_) = result["report"]["agreement"]["disagreed"]
+    assert disagreed["metric"] == "tax_expense"
+    assert (disagreed["rules"], disagreed["model"]) == ("9,500", "3,600")
+    accepted, queued = gated(result)
+    assert ("tax_expense", 2025) not in accepted
+    assert "layout_agreement" in queued[("tax_expense", 2025)]
+
+
+def test_cross_needs_a_model_and_keeps_rules_when_the_model_fails(tmp_path):
+    with pytest.raises(ResearchError, match="needs a configured model"):
+        automap(report_pdf(tmp_path / "a.pdf"), COMPANY, DOCUMENT, tmp_path / "x", layout="cross")
+    result = automap(
+        report_pdf(tmp_path / "b.pdf"),
+        COMPANY,
+        DOCUMENT,
+        tmp_path / "y",
+        provider=Refused(),
+        layout="cross",
+    )
+    assert result["report"]["layout"] == "rules" and "403" in result["report"]["model_error"]

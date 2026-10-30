@@ -74,6 +74,8 @@ def paths(tmp_path):
         "inbox": tmp_path / "inbox",
         "extractions": tmp_path / "extractions",
         "candidates": tmp_path / "candidates",
+        # Layout reading by the model is tested in test_llm_layout; these doubles only discover.
+        "layout": "rules",
     }
 
 

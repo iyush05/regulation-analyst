@@ -23,9 +23,10 @@ time.
 .venv/bin/regulation-analyst benchmark-layout --layout rules
 .venv/bin/regulation-analyst benchmark-layout --layout llm     # needs a configured model (OpenAI or Bedrock)
 .venv/bin/regulation-analyst benchmark-layout --layout auto
+.venv/bin/regulation-analyst benchmark-layout --layout cross
 ```
 
-Model layouts (`llm`, `auto`) run on four reports by default to save tokens: Infosys, Sun
+Model layouts (`llm`, `auto`, `cross`) run on four reports by default to save tokens: Infosys, Sun
 Pharma, HCLTech, and Bharti Airtel. Add `--all` for all 11, or `--only` to choose. Compare them
 with the rules rows for the same companies below.
 
@@ -55,8 +56,28 @@ Results are written to `artifacts/layout-benchmark/results-<layout>.{json,md}`.
 | Bharti Airtel | 2 | 0 | 5 | Balance sheet and P&L printed side by side on one page |
 | Hindalco | 2 | 0 | 5 | Same side-by-side layout |
 
-These failures are what the model-led layout (`--layout llm`) is meant to fix without per-company
-rules. Its results will be added here once run with a configured model.
+## Layout modes compared (30 October 2026, gpt-4.1, 4 reports)
+
+- **rules:** label rules only; no model.
+- **llm:** the model picks statement pages, rows, and year columns; code verifies every choice
+  and reads the values from the cells.
+- **auto:** rules, plus the model only when a core item is missing.
+- **cross:** both run and check each other. A figure both read is accepted only if the two
+  values agree; a disagreement goes to the review queue with both readings. Figures only one
+  method found still pass every other gate. This is the default for `ingest`.
+
+Infosys, Sun Pharma, HCLTech, Bharti Airtel (31 gold values):
+
+| | rules | llm | auto | cross |
+|---|---:|---:|---:|---:|
+| Correct | 22 | 26 | 28 | **29** |
+| **Wrong and accepted** | 1 | 0 | 1 | **0** |
+| Blocked by gates | 0 | 2 | 0 | 1 |
+| Missing | 8 | 3 | 2 | 1 |
+
+In `cross`, the two readings agreed on 63 Sun Pharma figures and disagreed only on total
+profit (rules 109,801.0, model 109,647.5), which is now queued instead of imported wrongly.
+A new report costs about 35,000 model tokens; reruns reuse cached decisions.
 
 **Keep the benchmark honest:** do not tune label rules to these specific reports. Add new
 companies to measure generalisation instead; fixes judged only on the benchmark they were tuned

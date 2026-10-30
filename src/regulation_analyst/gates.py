@@ -236,6 +236,31 @@ def table_for(candidate, artifact, entry):
     return None
 
 
+def check_agreement(candidate: dict, results: dict) -> dict:
+    """A figure that a second, independent layout reading read differently is not imported."""
+    readings = candidate.get("second_readings") or {}
+    for entry in entries_of(candidate):
+        fact = entry["fact"]
+        other = readings.get(fact["id"])
+        if other is None:
+            continue
+        tolerance = resolution(fact["raw_value"], fact["unit"]) + resolution(
+            other["raw_value"], other["unit"]
+        )
+        if abs(value(entry) - normalize(other["raw_value"], other["unit"])) <= tolerance:
+            results[fact["id"]]["passed"].add("layout_agreement")
+        else:
+            results[fact["id"]]["failed"].append(
+                {
+                    "gate": "layout_agreement",
+                    "detail": f"{fact['metric']} FY{fact['fiscal_year']}: label rules read "
+                    f"{fact['raw_value']}, the model layout read {other['raw_value']}",
+                    "participants": [fact["id"]],
+                }
+            )
+    return results
+
+
 def resolve_once(candidate, artifact, pdf, results, provider, budget, notes, rows_now) -> bool:
     """Ask the model to re-point failing line items; returns whether any fact changed."""
     entries = {e["fact"]["id"]: e for e in entries_of(candidate)}
@@ -329,7 +354,9 @@ def gate(
     notes: dict[str, str] = {}
     rows_now: dict[str, int] = {}
     with pymupdf.open(document["snapshot_path"]) as pdf:
-        results = check(entries_of(candidate), pdf=pdf, store=store, others=others)
+        results = check_agreement(
+            candidate, check(entries_of(candidate), pdf=pdf, store=store, others=others)
+        )
         if provider and extraction:
             artifact = json.loads(open(extraction).read())
             for _ in range(MAX_ROUNDS):
@@ -338,7 +365,9 @@ def gate(
                     candidate, artifact, pdf, results, provider, budget, notes, rows_now
                 ):
                     break
-                results = check(entries_of(candidate), pdf=pdf, store=store, others=others)
+                results = check_agreement(
+                    candidate, check(entries_of(candidate), pdf=pdf, store=store, others=others)
+                )
     entries = entries_of(candidate)
     accepted, queued, dropped, restatements, corroborating = [], [], [], [], 0
     for entry in entries:

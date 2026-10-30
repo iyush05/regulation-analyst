@@ -41,7 +41,7 @@ def parser():
     bench = commands.add_parser(
         "benchmark-layout", help="Score statement extraction against gold figures per company"
     )
-    bench.add_argument("--layout", choices=["rules", "llm", "auto"], default="rules")
+    bench.add_argument("--layout", choices=["rules", "llm", "auto", "cross"], default="rules")
     bench.add_argument("--gold", type=Path, default=Path("benchmarks/layout-gold.json"))
     bench.add_argument("--archive", type=Path, default=Path("data/benchmark/sources"))
     bench.add_argument("--work", type=Path, default=Path("artifacts/layout-benchmark"))
@@ -215,10 +215,11 @@ def parser():
     )
     ingest.add_argument(
         "--layout",
-        choices=["rules", "llm", "auto"],
-        default="rules",
-        help="How statement layouts are read: label rules, the model (verified), or rules "
-        "with the model when core items are missing",
+        choices=["rules", "llm", "auto", "cross"],
+        default="cross",
+        help="How statement layouts are read: label rules, the model (verified), rules with "
+        "the model when core items are missing, or both checking each other (default; needs a "
+        "model, otherwise rules)",
     )
     ingest.add_argument(
         "--llm-resolve",
