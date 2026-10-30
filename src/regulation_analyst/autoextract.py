@@ -68,7 +68,8 @@ PATTERNS = {
     "equity_owners": r"^(total )?equity attributable to (the )?"
     r"(equity holders|owners|shareholders|equity shareholders)\b",
     "operating_cash_flow": r"^net cash\b(?!.*before).*\boperating activities\b",
-    "capex": r"^(purchases? of|acquisition of|payments? (towards|for)( acquisition of)?) "
+    "capex": r"^(purchases? of|acquisition of|expenditure on|payments? (towards|for)"
+    r"( acquisition of)?) "
     r".*property,? plant and equipment",
 }
 # Unanchored phrases used only to score candidate statement pages.
@@ -80,6 +81,7 @@ LOCATE_HINTS = {
         "tax expense",
         "profit for the",
         "earnings per",
+        "attributable to",
     ],
     "balance_sheet": [
         "total assets",
@@ -156,12 +158,16 @@ def heading_lines(text: str, lines: int = 8) -> list[str]:
 
 
 def statement_of(head: list[str]) -> str | None:
-    """A statement title within the page heading; notes pages merely mention statements."""
+    """A statement title opening a heading line. Notes and indexes merely mention statements,
+    e.g. "2.28 Function-wise classification of Statement of Profit and Loss"."""
     for line in head:
-        if len(line) <= 150:
-            for name, rx in STATEMENTS.items():
-                if rx.search(line):
-                    return name
+        if len(line) > 150 or "...." in line:
+            continue
+        title = re.sub(r"^(the )?(consolidated |standalone )?", "", line)
+        for name, rx in STATEMENTS.items():
+            match = rx.match(title)
+            if match:
+                return name
     return None
 
 
@@ -221,6 +227,8 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
     """Map metrics to row indexes using statement-, section-, and heading-aware rules."""
     found: dict[str, int] = {}
     section, context, seen_nci, total_equity = None, "", False, None
+    # EPS rows follow an "Earnings per share" heading, possibly after a par-value line.
+    eps_section = False
     for index, row in enumerate(rows):
         label = squash(row_label(row)).rstrip(":").strip()
         if not label:
@@ -235,6 +243,7 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
             section = "assets"
         if not numeric:
             context = label
+            eps_section = eps_section or "earnings per" in label
             continue
         label = re.sub(r"\s*\((₹|rs\.?|inr|in ₹|in rs\.?)[^)]*\)\s*$", "", label)
         for metric in STATEMENT_METRICS[statement]:
@@ -247,7 +256,8 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
                 or (OWNERS.search(label) and "profit" in context and "comprehensive" not in context)
             ):
                 found["profit_owners"] = index
-            if "earnings per" in context or "earnings per" in label:
+            share_count = re.search(r"in shares|number of|weighted average", label)
+            if (eps_section or "earnings per" in label) and not share_count:
                 if re.match(r"^basic\b|^basic earnings", label):
                     found.setdefault("eps_basic", index)
                     if "diluted" in label:
@@ -409,21 +419,26 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
         for strategy, artifact in artifacts.items()
     }
     tables = {strategy: [] for strategy in artifacts}
-    provenance, issues, claimed = [], [], set()
+    provenance, issues, claimed, units = [], [], set(), {}
     for item in located:
         if item["scope"] is None:
             issues.append({"page": item["page"], "issue": "scope_unknown"})
             continue
-        options = [
-            (len(matched), strategy, matched, table)
-            for strategy in artifacts
-            for table in pages[strategy].get(item["page"], {}).get("tables", [])
-            for matched in [classify(item["statement"], table["rows"])]
-        ]
-        if not options or not max(options, key=lambda option: option[0])[0]:
+        options = []
+        for strategy in artifacts:
+            for table in pages[strategy].get(item["page"], {}).get("tables", []):
+                matched = classify(item["statement"], table["rows"])
+                dated = bool(matched) and bool(
+                    year_columns(
+                        table["rows"], matched, table.get("headers"), company.fiscal_end_month
+                    )
+                )
+                options.append(((dated, len(matched)), strategy, matched, table))
+        if not options or not max(options, key=lambda option: option[0])[0][1]:
             issues.append({"page": item["page"], "issue": "no_statement_table"})
             continue
-        # Ties keep the first strategy (ruled lines), which has the most reliable cell boxes.
+        # A table whose year columns are identifiable wins; then more line items; ties keep
+        # the earlier strategy (ruled lines first, which have the most reliable cell boxes).
         _, strategy, matched, table = max(options, key=lambda option: option[0])
         page = pages[strategy][item["page"]]
         methods = {metric: {"method": "rule", "reason": "label rule"} for metric in matched}
@@ -444,10 +459,19 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
         matched = {m: r for m, r in matched.items() if (item["scope"], m) not in claimed}
         if not matched:
             continue
-        unit = detect_unit(page["text"])
+        unit, unit_page = detect_unit(page["text"]), None
+        key = (item["statement"], item["scope"])
+        if unit is None and key in units and units[key]["last_page"] == item["page"] - 1:
+            # "(contd.)" pages state no unit; cite the declaration on the preceding page.
+            unit, unit_page = units[key]["unit"], units[key]["evidence_page"]
         if unit is None:
             issues.append({"page": item["page"], "issue": "unit_not_identified"})
             continue
+        units[key] = {
+            "unit": unit,
+            "evidence_page": unit_page or item["page"],
+            "last_page": item["page"],
+        }
         columns = year_columns(
             table["rows"], matched, table.get("headers"), company.fiscal_end_month
         )
@@ -463,6 +487,7 @@ def plan_tables(artifacts: dict, located, company: Company, provider=None, budge
                 "title": item["heading"][:120] or item["statement"],
                 "unit": unit[0],
                 "unit_evidence": unit[1],
+                **({"unit_evidence_page": unit_page} if unit_page else {}),
                 "scope": item["scope"],
                 "basis": item["basis"],
                 "columns": columns,
@@ -518,7 +543,7 @@ def automap(
     pages = sorted({item["page"] for item in location["pages"]})
     artifacts = {
         strategy: extract_pdf(pdf, output_dir, pages, table_strategy=strategy)
-        for strategy in ("lines", "text")
+        for strategy in ("lines", "rows", "text")
     }
     tables, provenance, issues = plan_tables(
         artifacts, location["pages"], company, provider, budget

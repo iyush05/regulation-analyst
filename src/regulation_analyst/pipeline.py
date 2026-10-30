@@ -307,12 +307,19 @@ def take_from_inbox(store, planned, inbox, archive) -> list[dict]:
     return taken
 
 
-def map_filings(store, planned, extractions, candidates, *, provider=None, budget=None):
+def map_filings(
+    store, planned, extractions, candidates, *, provider=None, budget=None, remap=False
+):
     results = []
     for item in planned["items"]:
         key = item_key(item["fiscal_year"])
-        if not item.get("snapshot_path") or item.get("candidates"):
+        if not item.get("snapshot_path") or (item.get("candidates") and not remap):
             continue
+        # Remapping replaces generated candidates; the archived source PDF is untouched.
+        for stale in [*item.pop("candidates", []), item.pop("report", None)]:
+            if stale:
+                Path(stale).unlink(missing_ok=True)
+        item.pop("map_error", None)
         document = Document(
             id=f"{planned['company'].id}-annual-report-fy{item['fiscal_year']}",
             title=item["title"],
@@ -370,6 +377,7 @@ def ingest(
     poll_seconds: float = 2,
     llm_mapping=False,
     budget=None,
+    remap=False,
 ) -> dict:
     wanted = sorted({year_number(y) for y in years})
     if not wanted or len(wanted) > 10:
@@ -390,6 +398,7 @@ def ingest(
         candidates,
         provider=provider if llm_mapping else None,
         budget=budget,
+        remap=remap,
     )
     return {
         "company": planned["company"].model_dump(mode="json"),

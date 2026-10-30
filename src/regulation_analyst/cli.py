@@ -108,7 +108,7 @@ def parser():
     )
     extract.add_argument("--language", default="eng")
     extract.add_argument(
-        "--table-strategy", choices=["lines", "lines_strict", "text"], default="lines"
+        "--table-strategy", choices=["lines", "lines_strict", "text", "rows"], default="lines"
     )
     acquire = commands.add_parser(
         "acquire", help="Archive one official PDF from a manifest or local file"
@@ -161,6 +161,9 @@ def parser():
     ingest.add_argument("--no-browser", action="store_true", help="Print links instead of opening")
     ingest.add_argument("--watch-minutes", type=float, default=0)
     ingest.add_argument("--llm-map", action="store_true", help="Model picks rows rules missed")
+    ingest.add_argument(
+        "--remap", action="store_true", help="Map archived reports again with current rules"
+    )
     ingest.add_argument("--model", default=os.environ.get("REGULATION_AGENT_MODEL", ""))
     ingest.add_argument("--max-tokens", type=int, default=100_000)
     ingest.add_argument("--archive", type=Path, default=Path("data/sources"))
@@ -373,6 +376,7 @@ def main(argv=None) -> int:
                 watch_seconds=args.watch_minutes * 60,
                 llm_mapping=args.llm_map and provider is not None,
                 budget=budget,
+                remap=args.remap,
             )
             waiting = [f for f in result["filings"] if f["status"] == "needs_manual_pdf"]
             payload = {

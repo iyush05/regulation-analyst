@@ -230,3 +230,15 @@ def test_cli_with_explicit_links_and_inbox_needs_no_model(tmp_path, capsys, monk
     done = json.loads(capsys.readouterr().out)
     assert done["status"] == "review_required"
     assert done["filings"][0]["status"] == "review_required"
+
+
+def test_remap_replaces_candidates_without_downloading(tmp_path, paths):
+    store = Store(tmp_path / "db.sqlite3", readonly=False)
+    fy25 = report(tmp_path / "fy25.pdf").read_bytes()
+    first = ingest(store, "Synthetic", ["FY25"], provider=Discovery(), client=site(fy25), **paths)
+    old = first["filings"][0]["candidates"]
+    again = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), remap=True, **paths)
+    item = again["filings"][0]
+    assert item["status"] == "review_required"
+    assert item["candidates"] == old
+    assert all(open(path).read() for path in item["candidates"])

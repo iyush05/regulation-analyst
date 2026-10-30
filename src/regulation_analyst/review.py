@@ -60,6 +60,8 @@ class TableMapping(BaseModel):
     title: str = Field(min_length=1)
     unit: Literal["INR", "INR_lakh", "INR_million", "INR_crore"]
     unit_evidence: str = Field(min_length=1)
+    # Continuation pages often omit the unit line; it may be cited from an extracted page.
+    unit_evidence_page: int | None = Field(default=None, ge=1)
     scope: Scope
     basis: Basis
     columns: list[ColumnMapping] = Field(min_length=1)
@@ -129,7 +131,10 @@ def build_candidates(extraction_file: str | Path, mapping: MappingPlan) -> dict:
         table = tables.get(table_map.table_id)
         if not table:
             raise ResearchError("invalid_request", f"Missing extracted table {table_map.table_id}")
-        if table_map.unit_evidence.casefold() not in page["text"].casefold():
+        unit_page = pages.get(table_map.unit_evidence_page or table_map.page)
+        if not unit_page:
+            raise ResearchError("invalid_request", "Unit evidence page was not extracted")
+        if table_map.unit_evidence.casefold() not in unit_page["text"].casefold():
             raise ResearchError(
                 "invalid_request", "Unit evidence is not present on the mapped source page"
             )

@@ -270,7 +270,7 @@ def test_mapped_candidates_import_and_answer_derived_questions(tmp_path):
     assert answer.data["rows"][0]["definition"] == "operating_margin_derived.v1"
 
 
-def test_text_strategy_is_used_when_tables_have_no_rules(tmp_path):
+def test_text_line_strategy_is_used_when_tables_have_no_rules(tmp_path):
     result = automap(
         report(tmp_path / "ar.pdf", grid=False), COMPANY, DOCUMENT, tmp_path / "extract"
     )
@@ -283,7 +283,11 @@ def test_text_strategy_is_used_when_tables_have_no_rules(tmp_path):
         for p in result["report"]["provenance"]
         if p["scope"] == "consolidated"
     }
-    assert (strategies["revenue"], strategies["total_assets"]) == ("text", "lines")
+    assert (strategies["revenue"], strategies["total_assets"]) == ("rows", "lines")
+    assert mapped[("revenue", 2024, "consolidated")][0]["raw_value"] == "1,53,670"
+    # Years come from the column headers, never from the title's "year ended March 31, 2025".
+    assert mapped[("revenue", 2025, "consolidated")][1]["column"] == "March 31, 2025"
+    assert mapped[("revenue", 2024, "consolidated")][1]["column"] == "March 31, 2024"
     assert len(result["candidates"]) == 2
 
 
@@ -413,3 +417,15 @@ def test_cli_writes_reviewable_candidates_and_report(tmp_path, capsys):
     assert (tmp_path / "out" / "synthetic-ar25-report.json").exists()
     # Existing outputs are never overwritten.
     assert main(args) == 2
+
+
+def test_eps_follows_its_heading_and_skips_share_counts():
+    rows = [
+        ["Earnings per equity share", "", ""],
+        ["Equity shares of par value ₹5/- each", "", ""],
+        ["Basic (in shares)", "414,16,11,738", "413,85,68,090"],
+        ["Basic (₹)", "64.50", "63.39"],
+        ["Diluted (₹)", "64.34", "63.29"],
+    ]
+    found = classify("profit_loss", rows)
+    assert (found["eps_basic"], found["eps_diluted"]) == (3, 4)
