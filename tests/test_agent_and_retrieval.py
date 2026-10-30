@@ -321,3 +321,53 @@ def test_index_stale_corpus_and_reranker(store, tmp_path):
 def test_invalid_vectors_fail_closed(vector):
     with pytest.raises(ResearchError):
         unit_vector(vector)
+
+
+def test_relative_periods_use_available_years_and_say_so(service, tmp_path):
+    margins = {
+        year: calculate(
+            service.store,
+            "net_margin",
+            [f"infosys-indas-{year}-profit_owners", f"infosys-indas-{year}-revenue"],
+        )
+        for year in (2024, 2025)
+    }
+    table = {"company": "Infosys", "years": ["FY22"], "metrics": ["profit_owners", "revenue"]}
+    provider = ScriptedProvider(
+        [
+            ("get_table", table),  # A guessed year the corpus does not hold.
+            ("get_table", {**table, "years": ["FY24", "FY25"]}),
+            *[
+                ("calculate", {"formula": "net_margin", "fact_ids": c["input_fact_ids"]})
+                for c in margins.values()
+            ],
+            (
+                "finish",
+                finish(
+                    calculation_ids=[c["id"] for c in margins.values()],
+                    assumed_years=["FY24", "FY25"],
+                ),
+            ),
+        ]
+    )
+    answer = run_agent(
+        service,
+        "Has Infosys' profitability improved over the last two financial years?",
+        provider,
+        log_dir=tmp_path,
+    )
+    assert answer.status == "ok", answer.message
+    text = answer.data["answer"]
+    assert "Period: the question's relative period was read as FY24, FY25" in text
+    assert "Gaps" not in text  # The FY22 miss no longer applies to the answer.
+    first = json.loads(
+        next(m["output"] for m in provider.messages if m.get("type") == "function_call_output")
+    )
+    assert first["data"]["available_years"] == [2024, 2025]
+    assert provider.messages[0]["content"].startswith("Today is ")
+
+
+def test_malformed_assumed_years_are_rejected(service, tmp_path):
+    bad = ("finish", finish(assumed_years=["last year"]))
+    answer = run_agent(service, "Infosys revenue FY25", ScriptedProvider([bad]), log_dir=tmp_path)
+    assert answer.status == "invalid_request"

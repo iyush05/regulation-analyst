@@ -192,6 +192,16 @@ class ResearchService:
             facts=rows,
             missing=missing,
             derived=derived,
+            # Lets a caller that guessed the wrong years correct itself in one step.
+            available_years=sorted(
+                {
+                    f.fiscal_year
+                    for f in self.store.records("facts")
+                    if f.company_id == company_id and f.scope == scope and f.basis == basis
+                }
+            )
+            if missing
+            else None,
             scope=scope,
             basis=basis,
             restatement_policy=policy,
