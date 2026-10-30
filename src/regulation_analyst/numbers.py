@@ -48,6 +48,30 @@ def normalized_unit(unit: str) -> str:
     return unit if unit in UNSCALED else "INR_crore"
 
 
+def resolution(raw: str, unit: str) -> Decimal:
+    """Half the smallest printed step, normalized: the rounding a printed amount may carry."""
+    decimals = len(raw.split(".")[1]) if "." in raw else 0
+    scale = Decimal(1) if unit in UNSCALED else SCALES[unit]
+    return Decimal(1).scaleb(-decimals) * scale / 2
+
+
+def indian(value: Decimal, places: int | None = None) -> str:
+    """Indian digit grouping, e.g. 4,39,695 or -3,851.64; whole numbers keep no decimals."""
+    if places is None:
+        places = 0 if value == value.to_integral_value() else 2
+    text = display(value, places)
+    sign, text = ("-", text[1:]) if text.startswith("-") else ("", text)
+    whole, _, fraction = text.partition(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        whole = ",".join([head, *groups, tail] if head else [*groups, tail])
+    return sign + whole + ("." + fraction if fraction else "")
+
+
 def decimal_text(value: Decimal) -> str:
     if not value.is_finite():
         raise ResearchError("undefined", "Calculation produced a non-finite value")

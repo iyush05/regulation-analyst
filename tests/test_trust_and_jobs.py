@@ -101,7 +101,7 @@ def test_answer_text_discloses_automated_evidence(tmp_path, synthetic_bundle):
     store.import_bundle(automate(synthetic_bundle(rows), "llm_resolved"))
     result = ResearchService(Store(store.path)).answer_question("alpha net margin FY25")
     assert result.status == "ok"
-    assert "| FY2025 | 15.00% |" in result.data["answer"]
+    assert "| alpha | net margin | 15.00% [1] |" in result.data["answer"]
     assert "unreviewed: LLM-resolved" in result.data["answer"]
 
 

@@ -35,6 +35,7 @@ STATEMENT_METRICS = {
         "tax_expense",
         "profit_total",
         "profit_owners",
+        "profit_discontinued",
         "eps_basic",
         "eps_diluted",
     ],
@@ -63,6 +64,8 @@ PATTERNS = {
     "tax_expense": r"^(total )?(income )?tax (\(credit\)\s*/\s*)?expenses?\b"
     r"(?!.*(continuing|discontinued))",
     "profit_total": r"^profit for the (year|period)\b(?!.*(attributable|continuing|discontinued))",
+    "profit_discontinued": r"^profit\s*(/\s*\(?loss\)?)?\s*(for the (year|period) )?"
+    r"from discontinued operations?\b(?!.*before tax)",
     "total_assets": r"^total assets$",
     "current_assets": r"^total current assets$",
     "current_liabilities": r"^total current liabilities$",

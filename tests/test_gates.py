@@ -69,8 +69,9 @@ def test_clean_statement_passes_every_applicable_gate(tmp_path):
     assert result["queued"] == []
     bundle = result["bundle"]
     facts = {f.metric: f for f in bundle.facts}
-    assert {f.revision for f in bundle.facts} == {"reported"}  # Comparatives are not imported.
-    assert result["comparatives_corroborating"] == len(bundle.facts)
+    revisions = [f.revision for f in bundle.facts]
+    assert set(revisions) == {"reported", "comparative"}
+    assert result["comparatives_corroborating"] == revisions.count("comparative")
     evidence = {e.id: e for e in bundle.evidence}
     revenue = evidence[facts["revenue"].evidence_id]
     assert revenue.review_method == "automated_extraction"
@@ -95,12 +96,11 @@ def test_resolver_repoints_a_row_and_gates_rerun(tmp_path):
     resolver = Resolver({"other_income": net})
     result = gate(candidate, extraction=extraction, provider=resolver)
     assert result["queued"] == []
-    assert result["llm_resolved"] == [
-        f["id"]
-        for f in candidate["bundle"]["facts"]
-        if f["metric"] == "other_income" and f["revision"] == "reported"
-    ]
-    facts = {f.metric: f for f in result["bundle"].facts}
+    # Both years' other-income rows were re-pointed, each by its own identity failure.
+    assert result["llm_resolved"] == sorted(
+        f["id"] for f in candidate["bundle"]["facts"] if f["metric"] == "other_income"
+    )
+    facts = {f.metric: f for f in result["bundle"].facts if f.revision == "reported"}
     assert facts["other_income"].raw_value == "3,600"
     evidence = {e.id: e for e in result["bundle"].evidence}
     resolved = evidence[facts["other_income"].evidence_id]
@@ -177,7 +177,7 @@ def test_import_is_idempotent_and_refuses_changed_records(tmp_path):
     sources = {f["source"]["trust"] for f in row["facts"]}
     assert sources == {"automated"}
     answer = service.answer_question("Synthetic revenue FY25")
-    assert "(unreviewed: automated extraction)" in answer.data["answer"]
+    assert "— unreviewed: automated extraction" in answer.data["answer"]
     assert (
         service.call(
             "answer_question", question="Synthetic revenue FY25", trust="reviewed_only"

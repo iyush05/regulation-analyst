@@ -142,9 +142,12 @@ def for_model(value):
         compact = {k: value[k] for k in FACT_FIELDS if k in value}
         compact["unit"] = value.get("normalized_unit", value.get("unit"))
         compact["trust"] = value.get("source", {}).get("trust", "reviewed")
+        compact["warnings"] = [w["text"] for w in value.get("warnings", [])]
         return compact
     if "formula_id" in value and "input_fact_ids" in value:
-        return {k: value[k] for k in CALCULATION_FIELDS if k in value}
+        compact = {k: value[k] for k in CALCULATION_FIELDS if k in value}
+        compact["warnings"] = [w["text"] for w in value.get("warnings", [])]
+        return compact
     return {
         key: for_model(item)
         for key, item in value.items()
@@ -168,6 +171,8 @@ class Ledger:
         self.years = years or []
         self.allow_opening_equity = allow_opening_equity
         self.facts, self.calculations, self.passages, self.provisions = {}, {}, {}, {}
+        # Specific reasons tools gave for missing evidence, shown instead of gap categories.
+        self.missing: list[str] = []
 
     def absorb(self, value):
         if isinstance(value, list):
@@ -250,12 +255,67 @@ class Ledger:
                     **record.model_dump(mode="json"),
                     "source": self.store.source(record.evidence_id),
                 }
+            for gap in value.get("missing") or []:
+                if isinstance(gap, dict) and gap.get("reason"):
+                    self.missing.append(gap["reason"])
             for item in value.values():
                 if isinstance(item, (dict, list)):
                     self.absorb(item)
 
+    def answer_text(self, chosen, narrative, selection: FinishArgs) -> str:
+        from .render import Sources, assemble, bullets, name, year_table
+
+        cited = Sources()
+
+        def calc_year(calculation):
+            return max(f["fiscal_year"] for f in calculation["inputs"])
+
+        years = sorted(
+            {f["fiscal_year"] for f in chosen["fact"]}
+            | {calc_year(c) for c in chosen["calculation"]}
+        )
+        measures, figures = {}, {}
+        for c in chosen["calculation"]:
+            company = c["inputs"][0]["company_id"]
+            measures.setdefault((company, name(c["formula_id"]), c["unit"]), {})[calc_year(c)] = (
+                c["value"],
+                [f["source"] for f in c["inputs"]],
+            )
+        for f in chosen["fact"]:
+            figures.setdefault((f["company_id"], name(f["metric"]), f["normalized_unit"]), {})[
+                f["fiscal_year"]
+            ] = (f["value"], [f["source"]])
+        commentary = []
+        for kind, item in narrative:
+            prefix = (
+                f"{item.get('speaker') or 'Source'} ({item['representation'].replace('_', ' ')})"
+                if kind == "passage"
+                else f"{item['authority']} · {item['instrument']} · {item['clause']} · "
+                f"applies to {', '.join(item['entity_types'])}"
+            )
+            commentary.append(f"- {prefix}: {item['text']} {cited.cite(item['source'])}")
+        notes = [w["text"] for c in chosen["calculation"] for w in c["warnings"]]
+        notes += [w["text"] for f in chosen["fact"] for w in f["warnings"]]
+        gaps = self.missing or [gap.replace("_", " ") for gap in selection.gaps]
+        sel = self.selection
+        return assemble(
+            [
+                ("", [f"{sel.scope.capitalize()} · {sel.basis} · {sel.policy.replace('_', ' ')}"]),
+                ("Summary", year_table("Measure", measures, years, cited, True)),
+                (
+                    "Reported figures",
+                    year_table("Line item", figures, years, cited, not measures),
+                ),
+                ("Commentary and provisions", commentary),
+                ("Warnings", bullets(notes)),
+                ("Gaps", bullets(gaps)),
+            ],
+            cited,
+        )
+
     def render(self, selection: FinishArgs):
-        lines, claims, sources = [], [], {}
+        claims, sources, narrative = [], {}, []
+        chosen = {"fact": [], "calculation": []}
         for field, pool, kind in (
             ("fact_ids", self.facts, "fact"),
             ("calculation_ids", self.calculations, "calculation"),
@@ -269,17 +329,7 @@ class Ledger:
                         "Final answer references evidence never returned by a tool",
                     )
                 item = pool[rid]
-                if kind == "fact":
-                    line = (
-                        f"{item['company_id']} · FY{item['fiscal_year']} · "
-                        f"{item['scope']} · {item['basis']} · "
-                        f"{item['metric']}: {item['value']} "
-                        f"{item['normalized_unit'].replace('_', ' ')}."
-                    )
-                    if item["source"]["trust"] != "reviewed":
-                        line += f" Trust: {item['source']['trust']}."
-                    evidence = [item["source"]]
-                elif kind == "calculation":
+                if kind == "calculation":
                     fresh = calculate(
                         self.store, item["formula_id"].removesuffix(".v1"), item["input_fact_ids"]
                     )
@@ -287,29 +337,14 @@ class Ledger:
                         raise ResearchError(
                             "invalid_request", "Calculation changed before final rendering"
                         )
-                    periods = ", ".join(
-                        str(y) for y in sorted({f["fiscal_year"] for f in item["inputs"]})
-                    )
-                    first = item["inputs"][0]
-                    line = (
-                        f"{first['company_id']} · FY {periods} · "
-                        f"{first['scope']} · {first['basis']} · "
-                        f"{item['formula_id']}: {item['display_value']} {item['unit']}."
-                    )
                     evidence = [fact["source"] for fact in item["inputs"]]
                 else:
-                    prefix = (
-                        f"{item.get('speaker') or 'Source'} ({item['representation']})"
-                        if kind == "passage"
-                        else (
-                            f"{item['authority']} · {item['instrument']} · {item['clause']} · "
-                            f"applies to {', '.join(item['entity_types'])}"
-                        )
-                    )
-                    line = f"{prefix}: {item['text']}"
                     evidence = [item["source"]]
+                if kind in chosen:
+                    chosen[kind].append(item)
+                else:
+                    narrative.append((kind, item))
                 citations = {s["evidence_id"]: s for s in evidence}
-                lines.append(line + " " + " ".join(s["citation"] for s in citations.values()))
                 sources.update(citations)
                 claims.append(
                     {
@@ -322,12 +357,15 @@ class Ledger:
                         "trust": sorted({s.get("trust", "reviewed") for s in evidence}),
                     }
                 )
-        if selection.gaps:
-            lines.append(
-                "Evidence gaps: " + ", ".join(gap.replace("_", " ") for gap in selection.gaps) + "."
-            )
         return {
-            "answer": "\n\n".join(lines) or "No supported evidence found.",
+            "answer": self.answer_text(chosen, narrative, selection)
+            if claims
+            else "No supported evidence found."
+            + (
+                ""
+                if not (self.missing or selection.gaps)
+                else " " + "; ".join(self.missing or [g.replace("_", " ") for g in selection.gaps])
+            ),
             "claims": claims,
             "sources": list(sources.values()),
             "gaps": selection.gaps,

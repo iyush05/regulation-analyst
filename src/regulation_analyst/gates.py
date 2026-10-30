@@ -6,8 +6,9 @@ plausibility bounds are checked too. Failures may go to an LLM resolver, which c
 at another row of the same table; the value is re-read from the cell and every gate re-runs.
 Whatever still fails is queued for review rather than imported.
 
-Comparative-year columns are cross-checks only. Each year is imported from its own report, so a
-later restatement can never leave two automated values competing for the same fact.
+Comparative-year columns are imported as printed but only fill gaps: fact selection prefers
+each year's own report, so a later restatement never competes with the original. Differences
+between the two surface as warnings in answers.
 """
 
 import copy
@@ -21,7 +22,7 @@ from .autoextract import row_label
 from .errors import ResearchError
 from .metrics import DEFINITIONS
 from .models import Bundle
-from .numbers import SCALES, normalize, parse_number
+from .numbers import normalize, parse_number, resolution
 from .providers import image_input
 
 # lhs = sum(sign * term); each identity is checked only when every line item is present.
@@ -34,13 +35,6 @@ NON_NEGATIVE = {"finance_costs", "depreciation_amortisation"}
 # Largest Indian groups report revenue of a few lakh crore; 10^7 crore signals a unit error.
 MAX_CRORE = Decimal(10) ** 7
 MAX_ROUNDS = 2
-
-
-def resolution(raw: str, unit: str) -> Decimal:
-    """Half the smallest printed step, in crore: the rounding a printed amount may carry."""
-    decimals = len(raw.split(".")[1]) if "." in raw else 0
-    scale = Decimal(1) if unit == "INR_per_share" else SCALES[unit]
-    return Decimal(1).scaleb(-decimals) * scale / 2
 
 
 def value(entry) -> Decimal:
@@ -242,14 +236,12 @@ def table_for(candidate, artifact, entry):
     return None
 
 
-def resolve_once(candidate, artifact, pdf, results, provider, budget, notes) -> bool:
+def resolve_once(candidate, artifact, pdf, results, provider, budget, notes, rows_now) -> bool:
     """Ask the model to re-point failing line items; returns whether any fact changed."""
     entries = {e["fact"]["id"]: e for e in entries_of(candidate)}
     problems = {}
-    for fid, result in results.items():
+    for result in results.values():
         for failure in result["failed"]:
-            if entries[fid]["fact"]["revision"] != "reported":
-                continue  # Comparatives are never imported, so never worth resolving.
             problems.setdefault(tuple(sorted(failure["participants"])), []).append(
                 failure["detail"]
             )
@@ -258,6 +250,11 @@ def resolve_once(candidate, artifact, pdf, results, provider, budget, notes) -> 
         located = {fid: table_for(candidate, artifact, entries[fid]) for fid in participants}
         if not all(located.values()):
             continue
+        # A fact's row may already have been re-pointed; years share one mapping row.
+        located = {
+            fid: (table, column, rows_now.get(fid, row))
+            for fid, (table, column, row) in located.items()
+        }
         tables = {id(t): t for t, _, _ in located.values()}
         if len(tables) != 1:
             continue  # Rows can only be re-pointed within one table.
@@ -306,12 +303,7 @@ def resolve_once(candidate, artifact, pdf, results, provider, budget, notes) -> 
             entry["evidence"]["bbox"] = (
                 boxes[correction.row][column] if correction.row < len(boxes) else None
             )
-            for table_map in candidate["mapping"]["tables"]:
-                for row_map in table_map["rows"]:
-                    if row_map["metric"] == entry["fact"]["metric"] and (
-                        table_map["table_id"] == table["id"]
-                    ):
-                        row_map["row"] = correction.row
+            rows_now[fid] = correction.row
             notes[fid] = (
                 f"{correction.metric}: row {current} -> {correction.row}; {correction.reason[:300]}"
             )
@@ -335,6 +327,7 @@ def gate(
     candidate = copy.deepcopy(candidate)
     document = candidate["bundle"]["documents"][0]
     notes: dict[str, str] = {}
+    rows_now: dict[str, int] = {}
     with pymupdf.open(document["snapshot_path"]) as pdf:
         results = check(entries_of(candidate), pdf=pdf, store=store, others=others)
         if provider and extraction:
@@ -342,7 +335,7 @@ def gate(
             for _ in range(MAX_ROUNDS):
                 blocking = any(r["failed"] for r in results.values())
                 if not blocking or not resolve_once(
-                    candidate, artifact, pdf, results, provider, budget, notes
+                    candidate, artifact, pdf, results, provider, budget, notes, rows_now
                 ):
                     break
                 results = check(entries_of(candidate), pdf=pdf, store=store, others=others)
@@ -362,8 +355,13 @@ def gate(
             "warnings": result["warnings"],
         }
         if fact["revision"] != "reported":
+            blocking = [f for f in result["failed"] if f["gate"] != "cross_document"]
+            if blocking:
+                queued.append(summary)
+                continue
+            # A comparative that differs from its own year's report is a printed restatement.
+            accepted.append(entry)
             if result["failed"]:
-                # Disagreement with that year's own report may be a restatement.
                 dropped.append(summary)
             else:
                 corroborating += 1

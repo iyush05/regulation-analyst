@@ -19,6 +19,9 @@ DEFINITIONS = {
     "tax_expense": "expense.tax_total.v1",
     "profit_owners": "profit.attributable_to_owners.v1",
     "profit_total": "profit.including_noncontrolling_interests.v1",
+    # Present when a statement separates discontinued operations; revenue lines then cover
+    # continuing operations only, while total profit includes this amount.
+    "profit_discontinued": "profit.discontinued_operations_after_tax.v1",
     "eps_basic": "eps.basic.v1",
     "eps_diluted": "eps.diluted.v1",
     "operating_cash_flow": "cash_flow.net_from_operating_activities.v1",
@@ -325,14 +328,33 @@ def calculate(store: Store, formula: str, fact_ids: list[str]) -> dict:
             raise ResearchError(
                 "undefined", "Calculation exceeds supported decimal precision"
             ) from exc
+    inputs = [
+        {"name": name, **store.fact_data(fact)}
+        for name, fact in zip(spec["inputs"], facts, strict=True)
+    ]
+    warnings = list({w["text"]: w for item in inputs for w in item["warnings"]}.values())
+    for item in inputs:
+        kinds = {w["kind"] for w in item["warnings"]}
+        partner = [
+            other
+            for other in inputs
+            if other["fiscal_year"] == item["fiscal_year"]
+            and any(w["kind"] == "continuing_only" for w in other["warnings"])
+        ]
+        if "includes_discontinued" in kinds and partner:
+            warnings.append(
+                {
+                    "kind": "mixed_basis",
+                    "text": f"{item['company_id']} FY{item['fiscal_year']} ratios divide "
+                    "whole-company profit by continuing-operations revenue; they are not "
+                    "comparable with years without discontinued operations",
+                }
+            )
     payload = {
         "formula_id": formula + ".v1",
         "formula": spec["formula"],
         "input_fact_ids": fact_ids,
-        "inputs": [
-            {"name": name, **store.fact_data(fact)}
-            for name, fact in zip(spec["inputs"], facts, strict=True)
-        ],
+        "inputs": inputs,
         "value": decimal_text(value),
         "display_value": display(value),
         "unit": spec["unit"],
@@ -340,5 +362,6 @@ def calculate(store: Store, formula: str, fact_ids: list[str]) -> dict:
         "rounding": "ROUND_HALF_UP; display only, 2 decimal places",
         "elapsed_years": elapsed,
         "corpus_version": store.version,
+        "warnings": warnings,
     }
     return {"id": "calc:" + hashlib.sha256(canonical(payload).encode()).hexdigest()[:24], **payload}

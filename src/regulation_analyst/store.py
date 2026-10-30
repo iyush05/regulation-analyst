@@ -19,7 +19,7 @@ from .models import (
     Passage,
     Provision,
 )
-from .numbers import decimal_text, normalize, normalized_unit
+from .numbers import decimal_text, indian, normalize, normalized_unit, resolution
 
 MODELS = {
     "companies": Company,
@@ -414,7 +414,81 @@ class Store:
             "value": decimal_text(normalize(fact.raw_value, fact.unit)),
             "normalized_unit": normalized_unit(fact.unit),
             "source": self.source(fact.evidence_id),
+            "warnings": self.fact_warnings(fact),
         }
+
+    def fact_warnings(self, fact: Fact) -> list[dict]:
+        """Comparability notes derived from stored facts, so import order never matters.
+
+        A later report printing a different value for the same fact is a restatement. A
+        statement that reports profit from discontinued operations presents revenue for
+        continuing operations only, while its total profit includes that amount.
+        """
+        label = f"{fact.company_id} {fact.metric} FY{fact.fiscal_year}"
+        unit = "INR per share" if fact.unit == "INR_per_share" else "crore"
+        with self.connection() as conn:
+            own = conn.execute(
+                "SELECT d.id, json_extract(d.payload, '$.reporting_year') FROM evidence e "
+                "JOIN documents d ON d.id=e.document_id WHERE e.id=?",
+                (fact.evidence_id,),
+            ).fetchone()
+            same = conn.execute(
+                "SELECT f.payload, json_extract(d.payload, '$.reporting_year'), "
+                "json_extract(d.payload, '$.title') FROM facts f "
+                "JOIN evidence e ON e.id=f.evidence_id JOIN documents d ON d.id=e.document_id "
+                "WHERE f.company_id=? AND f.fiscal_year=? AND f.scope=? AND f.basis=? "
+                "AND f.id<>? AND (f.metric=? OR (f.metric='profit_discontinued' AND d.id=?))",
+                (
+                    fact.company_id,
+                    fact.fiscal_year,
+                    fact.scope,
+                    fact.basis,
+                    fact.id,
+                    fact.metric,
+                    own[0],
+                ),
+            ).fetchall()
+        warnings = []
+        amount = normalize(fact.raw_value, fact.unit)
+        step = resolution(fact.raw_value, fact.unit)
+        restated = set()
+        for payload, year, title in same:
+            other = Fact.model_validate_json(payload)
+            other_amount = normalize(other.raw_value, other.unit)
+            if other.metric == fact.metric:
+                later = year is not None and own[1] is not None and year > own[1]
+                differs = abs(other_amount - amount) > step + resolution(
+                    other.raw_value, other.unit
+                )
+                if later and differs and other_amount not in restated:
+                    restated.add(other_amount)
+                    warnings.append(
+                        {
+                            "kind": "restated",
+                            "text": f"{label} was restated as {indian(other_amount)} {unit} "
+                            f"in {title}",
+                        }
+                    )
+            elif other_amount != 0:
+                discontinued = indian(other_amount)
+                if fact.metric in ("revenue", "other_income", "total_income"):
+                    warnings.append(
+                        {
+                            "kind": "continuing_only",
+                            "text": f"{label} covers continuing operations only; the same "
+                            f"statement reports {discontinued} crore profit from discontinued "
+                            "operations",
+                        }
+                    )
+                elif fact.metric in ("profit_total", "profit_owners"):
+                    warnings.append(
+                        {
+                            "kind": "includes_discontinued",
+                            "text": f"{label} includes {discontinued} crore profit from "
+                            "discontinued operations",
+                        }
+                    )
+        return warnings
 
     def select_fact(
         self,
@@ -443,11 +517,14 @@ class Store:
                 "AND (? IS NULL OR (d.published_on IS NOT NULL AND d.published_on <= ?))",
                 (company_id, metric, year, scope, basis, cutoff, cutoff),
             ).fetchall()
+        # Reviewed evidence outranks automated extraction, which only fills gaps; among automated
+        # facts, a year's own report outranks comparative columns printed in other reports.
         reviewed = [row for row in rows if row[1] in REVIEWED_METHODS]
-        # Reviewed evidence outranks automated extraction; automated values only fill gaps.
+        automated = [Fact.model_validate_json(row[0]) for row in rows if row not in reviewed]
         if reviewed or trust == "reviewed_only":
-            rows = reviewed
-        candidates = [Fact.model_validate_json(row[0]) for row in rows]
+            candidates = [Fact.model_validate_json(row[0]) for row in reviewed]
+        else:
+            candidates = [f for f in automated if f.revision != "comparative"] or automated
         if policy == "originally_reported":
             candidates = [
                 f

@@ -33,6 +33,7 @@ REPORTED_METRICS = {
     "tax_expense": ("annual", "monetary"),
     "profit_total": ("annual", "monetary"),
     "profit_owners": ("annual", "monetary"),
+    "profit_discontinued": ("annual", "monetary"),
     "eps_basic": ("annual", "per_share"),
     "eps_diluted": ("annual", "per_share"),
     "operating_cash_flow": ("annual", "monetary"),

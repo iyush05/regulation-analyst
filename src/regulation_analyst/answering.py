@@ -1,12 +1,11 @@
 """Conservative, deterministic reference workflow; MCP clients supply their own LLM."""
 
 import re
-from decimal import Decimal
 
 from .errors import ResearchError
 from .metrics import DERIVED_METRICS, calculate
 from .models import REPORTED_METRICS
-from .numbers import display
+from .render import Sources, assemble, bullets, name, value_text, year_table
 
 ALIASES = {
     "operating_margin": ["operating margin", "operating margins"],
@@ -23,6 +22,10 @@ ALIASES = {
     "depreciation_amortisation": ["depreciation", "depreciation and amortisation"],
     "profit_before_tax": ["profit before tax", "pbt"],
     "tax_expense": ["tax expense"],
+    "profit_discontinued": [
+        "discontinued operations profit",
+        "profit from discontinued operations",
+    ],
     "eps_basic": ["eps", "basic eps", "earnings per share"],
     "eps_diluted": ["diluted eps", "diluted earnings per share"],
     "operating_cash_flow": ["operating cash flow", "cash flow from operations"],
@@ -42,7 +45,6 @@ ALIASES = {
     "free_cash_flow": ["free cash flow", "fcf"],
     "current_ratio": ["current ratio"],
 }
-UNIT_SUFFIX = {"percent": "%", "times": "x", "INR_per_share": " INR per share"}
 
 
 def contains(text: str, phrase: str) -> bool:
@@ -318,51 +320,49 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     validate_rows(service.store, rows, calculations)
     sources = {fact["evidence_id"]: fact["source"] for row in rows for fact in row["facts"]}
     sources.update({p["evidence_id"]: p["source"] for p in commentary})
-    lines = [
-        f"{metric.replace('_', ' ').title()} · {scope} · {basis} · {policy.replace('_', ' ')}.",
-        "",
-        "| Company | Fiscal year | Value | Evidence |",
-        "|---|---|---:|---|",
-    ]
+    cited = Sources()
+    table = {}
     for row in rows:
-        value = display(Decimal(row["value"]))
-        value += UNIT_SUFFIX.get(row["unit"], " crore INR")
-        cites = list(dict.fromkeys(f["source"]["citation"] for f in row["facts"]))
-        lines.append(
-            f"| {row['company_id']} | FY{row['fiscal_year']} | {value} | {'; '.join(cites)} |"
+        table.setdefault((row["company_id"], name(metric), row["unit"]), {})[row["fiscal_year"]] = (
+            row["value"],
+            [f["source"] for f in row["facts"]],
         )
-    for change in changes:
-        calc = change["calculation"]
-        lines.extend(
-            [
-                "",
-                f"{change['company_id']} FY{change['from_year']} → FY{change['to_year']}: "
-                f"{calc['display_value']} {calc['unit'].replace('_', ' ')} ({calc['formula_id']}).",
-            ]
-        )
-    if calculations:
-        lines.extend(
-            ["", "Method: " + "; ".join(dict.fromkeys(c["formula"] for c in calculations)) + "."]
-        )
-    for passage in commentary:
-        lines.extend(
-            [
-                "",
-                f"Management commentary for FY{passage['fiscal_year']} ({passage['speaker']}; "
-                f"{passage['representation'].replace('_', ' ')}): {passage['text']} "
-                f"{passage['source']['citation']}",
-            ]
-        )
+    change_lines = [
+        f"- {change['company_id']} FY{change['from_year'] % 100:02d}→FY"
+        f"{change['to_year'] % 100:02d}: "
+        f"{value_text(change['calculation']['value'], change['calculation']['unit'])} "
+        f"({name(change['calculation']['formula_id'])})"
+        for change in changes
+    ]
+    commentary_lines = [
+        f"- FY{p['fiscal_year'] % 100:02d} {p['speaker']} "
+        f"({p['representation'].replace('_', ' ')}): {p['text']} {cited.cite(p['source'])}"
+        for p in commentary
+    ]
     if commentary and len(years) > 1:
-        lines.extend(
-            [
-                "",
-                f"Commentary coverage is limited to FY{years[-1]}; "
-                "earlier explanations are not in this result.",
-            ]
+        commentary_lines.append(
+            f"- Commentary coverage is limited to FY{years[-1] % 100:02d}; "
+            "earlier explanations are not in this result."
         )
-    if missing:
-        lines.extend(["", "Evidence gaps: " + "; ".join(m["reason"] for m in missing) + "."])
+    notes = [w["text"] for c in calculations for w in c["warnings"]]
+    notes += [w["text"] for row in rows for f in row["facts"] for w in f["warnings"]]
+    method = (
+        ["Method: " + "; ".join(dict.fromkeys(c["formula"] for c in calculations)) + "."]
+        if calculations
+        else []
+    )
+    answer_text = assemble(
+        [
+            ("", [f"{name(metric).capitalize()} · {scope} · {basis} · {name(policy)}"]),
+            ("", year_table("Measure", table, years, cited, False)),
+            ("Change", change_lines),
+            ("", method),
+            ("Management commentary", commentary_lines),
+            ("Warnings", bullets(notes)),
+            ("Gaps", bullets(m["reason"] for m in missing)),
+        ],
+        cited,
+    )
     claims = [
         {
             "kind": "financial",
@@ -382,7 +382,7 @@ def answer(service, question: str, *, scope, basis, policy, known_on, trust="all
     return service.result(
         "partial" if missing else "ok",
         "Answer assembled from reviewed evidence and verified calculations",
-        answer="\n".join(lines),
+        answer=answer_text,
         rows=rows,
         changes=changes,
         commentary=commentary,

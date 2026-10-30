@@ -119,7 +119,7 @@ def test_per_share_values_keep_their_dimension(expanded):
     assert (row["value"], row["unit"]) == ("12.50", "INR_per_share")
     answer = expanded.answer_question("alpha EPS FY25")
     assert answer.status == "ok"
-    assert "12.50 INR per share" in answer.data["answer"]
+    assert "| alpha | eps basic | ₹12.50/share [1] |" in answer.data["answer"]
     growth = expanded.answer_question("alpha EPS growth FY24 to FY25")
     assert growth.data["changes"][0]["calculation"]["display_value"] == "25.00"
 
@@ -137,9 +137,9 @@ def test_roe_change_is_calculated_from_six_facts(expanded):
 
 def test_ratio_answers_render_units(expanded):
     answer = expanded.answer_question("alpha debt to equity FY25")
-    assert "| FY2025 | 0.20x |" in answer.data["answer"]
+    assert "| alpha | debt to equity | 0.20x [1] |" in answer.data["answer"]
     margin = expanded.answer_question("alpha EBITDA margin FY25")
-    assert "| FY2025 | 21.00% |" in margin.data["answer"]
+    assert "| alpha | ebitda margin | 21.00% [1] |" in margin.data["answer"]
     cagr = expanded.call("answer_question", question="alpha EBITDA CAGR FY24 to FY25")
     assert cagr.status == "out_of_scope"
 
