@@ -22,6 +22,8 @@ from .errors import ResearchError
 from .models import Company, Document, year_number
 from .review import squash
 
+# Integrated annual reports often exceed 50 MB; this is the acquisition module's ceiling.
+MAX_REPORT_BYTES = 200_000_000
 # Aggregators, file hosts, and search sites are never treated as a company's official domain.
 NOT_OFFICIAL = (
     "screener.in",
@@ -211,7 +213,16 @@ def existing(store, names: list[str]) -> Company | None:
     return None
 
 
-def download(store, planned, archive, *, client=None, opener=None, manual=False) -> list[dict]:
+def download(
+    store,
+    planned,
+    archive,
+    *,
+    client=None,
+    opener=None,
+    manual=False,
+    max_bytes=MAX_REPORT_BYTES,
+) -> list[dict]:
     """Plain download attempts; refused or failed links are handed to the browser."""
     blocked = []
     for item in planned["items"]:
@@ -221,7 +232,9 @@ def download(store, planned, archive, *, client=None, opener=None, manual=False)
         if not manual:
             try:
                 archived = acquire(
-                    SourceRequest(id=f"{planned['key']}-{key}".lower(), url=item["url"]),
+                    SourceRequest(
+                        id=f"{planned['key']}-{key}".lower(), url=item["url"], max_bytes=max_bytes
+                    ),
                     archive,
                     client=client,
                     extra_domains=(planned["domain"],),
@@ -262,7 +275,7 @@ def pdf_identity(path: Path, fiscal_end_month: int = 3) -> tuple[str, int | None
     return squash(text), max(years) if years else None
 
 
-def take_from_inbox(store, planned, inbox, archive) -> list[dict]:
+def take_from_inbox(store, planned, inbox, archive, max_bytes=MAX_REPORT_BYTES) -> list[dict]:
     """Match saved PDFs to waiting filings by file name, else by company name and year."""
     inbox = Path(inbox)
     inbox.mkdir(parents=True, exist_ok=True)
@@ -290,14 +303,23 @@ def take_from_inbox(store, planned, inbox, archive) -> list[dict]:
                 continue
             item = same_year[0]
         key = item_key(item["fiscal_year"])
-        archived = acquire(
-            SourceRequest(id=f"{planned['key']}-{key}".lower(), url=item["url"]),
-            archive,
-            local_pdf=pdf,
-            extra_domains=(planned["domain"],),
-        )
+        try:
+            archived = acquire(
+                SourceRequest(
+                    id=f"{planned['key']}-{key}".lower(), url=item["url"], max_bytes=max_bytes
+                ),
+                archive,
+                local_pdf=pdf,
+                extra_domains=(planned["domain"],),
+            )
+        except ResearchError as exc:
+            # One unusable file must not stop the run; it stays in the inbox for inspection.
+            item["inbox_error"] = f"{pdf.name}: {exc}"
+            store.record_job(planned["key"], key, "acquire", "needs_manual_pdf", detail(item))
+            continue
         item.update(snapshot_path=archived["snapshot_path"], sha256=archived["sha256"])
         item.pop("download_error", None)
+        item.pop("inbox_error", None)
         store.record_job(planned["key"], key, "acquire", "done", detail(item))
         processed = inbox / "processed"
         processed.mkdir(exist_ok=True)
@@ -378,18 +400,27 @@ def ingest(
     llm_mapping=False,
     budget=None,
     remap=False,
+    max_bytes=MAX_REPORT_BYTES,
 ) -> dict:
     wanted = sorted({year_number(y) for y in years})
     if not wanted or len(wanted) > 10:
         raise ResearchError("invalid_request", "Request between 1 and 10 fiscal years")
     urls = {year_number(y): url for y, url in (urls or {}).items()}
     planned = plan(store, name, wanted, provider=provider, urls=urls, budget=budget)
-    take_from_inbox(store, planned, inbox, archive)
-    blocked = download(store, planned, archive, client=client, opener=opener, manual=manual)
+    take_from_inbox(store, planned, inbox, archive, max_bytes)
+    blocked = download(
+        store,
+        planned,
+        archive,
+        client=client,
+        opener=opener,
+        manual=manual,
+        max_bytes=max_bytes,
+    )
     deadline = time.monotonic() + watch_seconds
     while blocked and time.monotonic() < deadline:
         time.sleep(poll_seconds)
-        take_from_inbox(store, planned, inbox, archive)
+        take_from_inbox(store, planned, inbox, archive, max_bytes)
         blocked = [i for i in blocked if not i.get("snapshot_path")]
     map_filings(
         store,

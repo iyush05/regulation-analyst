@@ -429,3 +429,44 @@ def test_eps_follows_its_heading_and_skips_share_counts():
     ]
     found = classify("profit_loss", rows)
     assert (found["eps_basic"], found["eps_diluted"]) == (3, 4)
+
+
+def test_schedule_iii_numbering_is_ignored_when_matching_labels():
+    rows = [
+        ["Revenue from operations", "34", "", ""],
+        ["(a) Revenue", "", "4,36,821", "4,31,212"],
+        ["I. Total revenue from operations", "", "4,39,695", "4,34,016"],
+        ["II. Other income", "35", "6,244", "5,692"],
+        ["III. Total income (I+II)", "", "4,45,939", "4,39,708"],
+        ["(e) Finance costs", "37", "5,083", "7,594"],
+        ["(h) Depreciation and amortisation expense", "", "23,256", "27,239"],
+    ]
+    found = classify("profit_loss", rows)
+    assert found == {
+        "revenue": 2,
+        "other_income": 3,
+        "total_income": 4,
+        "finance_costs": 5,
+        "depreciation_amortisation": 6,
+    }
+
+
+def test_continuing_operation_lines_are_not_company_totals():
+    rows = [
+        ["IX. Profit before tax from continuing operations (VII-VIII)", "", "33,780", "28,429"],
+        ["X. Tax (credit)/expense (net):", "", "", ""],
+        ["(a) Current tax", "", "5,023", "4,937"],
+        ["Total tax (credit)/expense (net)", "22", "10,502", "(4,024)"],
+        ["XI. Profit for the year from continuing operations (IX-X)", "", "23,278", "32,453"],
+        ["Attributable to:", "", "", ""],
+        ["(a) Shareholders of the Company", "", "22,959", "32,045"],
+        ["XIII Tax expense of discontinued operations", "51", "104", "172"],
+        ["XV Profit for the year (XI+XIV)", "", "28,149", "31,807"],
+        ["Attributable to:", "", "", ""],
+        ["(a) Shareholders of the Company", "", "27,830", "31,399"],
+    ]
+    found = classify("profit_loss", rows)
+    assert "profit_before_tax" not in found
+    assert found["tax_expense"] == 3
+    assert found["profit_total"] == 8
+    assert found["profit_owners"] == 10

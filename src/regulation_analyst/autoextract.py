@@ -52,14 +52,17 @@ STATEMENT_METRICS = {
 }
 # Patterns apply to the squashed row label. Context-dependent items are handled in classify().
 PATTERNS = {
-    "revenue": r"^revenue from operations\b",
+    "revenue": r"^(total )?revenue from operations\b",
     "other_income": r"^other income\b",
     "total_income": r"^total income\b",
     "finance_costs": r"^finance costs?\b",
     "depreciation_amortisation": r"^depreciation\b",
-    "profit_before_tax": r"^profit before (income )?tax(es)?\b",
-    "tax_expense": r"^(total )?(income )?tax expenses?\b",
-    "profit_total": r"^profit for the (year|period)\b(?!.*attributable)",
+    # Company totals only: lines limited to continuing or discontinued operations are
+    # different measures and must stay gaps rather than be stored as totals.
+    "profit_before_tax": r"^profit before (income )?tax(es)?\b(?!.*(continuing|discontinued))",
+    "tax_expense": r"^(total )?(income )?tax (\(credit\)\s*/\s*)?expenses?\b"
+    r"(?!.*(continuing|discontinued))",
+    "profit_total": r"^profit for the (year|period)\b(?!.*(attributable|continuing|discontinued))",
     "total_assets": r"^total assets$",
     "current_assets": r"^total current assets$",
     "current_liabilities": r"^total current liabilities$",
@@ -223,14 +226,28 @@ def locate_statements(pdf: str | Path) -> dict:
     return {"pages": found, "scanned_pages": scanned, "page_count": len(texts)}
 
 
+# Schedule III item numbering, e.g. "I.", "(a)", "(1)", "(ii)", and formula references
+# such as "(I+II)" or "(V-VI)" after a total.
+# Upper-case roman numerals may stand without punctuation ("XV Profit for the year").
+ENUMERATOR = re.compile(r"^(?:(?:\(?(?:[ivxIVX]{1,5}|[a-zA-Z]|\d{1,2})[.)]|[IVX]{1,5}(?=\s))\s*)+")
+FORMULA = re.compile(r"\s*\([ivx+\-–\s]+\)\s*$", re.I)
+
+
+def plain_label(row) -> str:
+    label = ENUMERATOR.sub("", " ".join(row_label(row).split()))
+    return FORMULA.sub("", squash(label).rstrip(":").strip()).strip()
+
+
 def classify(statement: str, rows: list[list]) -> dict[str, int]:
     """Map metrics to row indexes using statement-, section-, and heading-aware rules."""
     found: dict[str, int] = {}
     section, context, seen_nci, total_equity = None, "", False, None
     # EPS rows follow an "Earnings per share" heading, possibly after a par-value line.
     eps_section = False
+    # The amount line an "Attributable to:" heading refers to.
+    last_amount = ""
     for index, row in enumerate(rows):
-        label = squash(row_label(row)).rstrip(":").strip()
+        label = plain_label(row)
         if not label:
             continue
         # Amount rows state the current and comparative period; a lone number is a note ref.
@@ -251,9 +268,16 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
             if metric not in found and pattern and re.search(pattern, label):
                 found[metric] = index
         if statement == "profit_loss":
+            attributes_total_profit = re.match(
+                r"^profit for the (year|period)\b(?!.*(continuing|discontinued))", last_amount
+            ) or ("profit" in context and not re.search(r"continuing|discontinued", context))
             if "profit_owners" not in found and (
                 PROFIT_TO_OWNERS.search(label)
-                or (OWNERS.search(label) and "profit" in context and "comprehensive" not in context)
+                or (
+                    OWNERS.search(label)
+                    and "comprehensive" not in context
+                    and attributes_total_profit
+                )
             ):
                 found["profit_owners"] = index
             share_count = re.search(r"in shares|number of|weighted average", label)
@@ -282,6 +306,7 @@ def classify(statement: str, rows: list[list]) -> dict[str, int]:
                 found.setdefault("borrowings_noncurrent", index)
             if re.match(r"^short-term borrowings$", label):
                 found.setdefault("borrowings_current", index)
+        last_amount = label
     if statement == "balance_sheet" and "equity_owners" not in found and not seen_nci:
         # Without non-controlling interests, total equity is entirely owners' equity.
         if total_equity is not None:

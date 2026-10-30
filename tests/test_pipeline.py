@@ -242,3 +242,37 @@ def test_remap_replaces_candidates_without_downloading(tmp_path, paths):
     assert item["status"] == "review_required"
     assert item["candidates"] == old
     assert all(open(path).read() for path in item["candidates"])
+
+
+def test_oversized_report_is_reported_per_filing_not_fatal(tmp_path, paths):
+    store = Store(tmp_path / "db.sqlite3", readonly=False)
+    fy25 = report(tmp_path / "fy25.pdf")
+    limit = fy25.stat().st_size - 1
+    first = ingest(
+        store,
+        "Synthetic",
+        ["FY25"],
+        provider=Discovery(),
+        client=site(fy25.read_bytes(), refused=()),
+        opener=lambda url: None,
+        max_bytes=limit,
+        **paths,
+    )
+    assert first["filings"][0]["status"] == "needs_manual_pdf"
+    assert "size limit" in first["filings"][0]["download_error"]
+
+    # The saved copy is still too large: reported for that filing, left in the inbox.
+    paths["inbox"].mkdir(exist_ok=True)
+    saved = paths["inbox"] / "ar-2024-25.pdf"
+    saved.write_bytes(fy25.read_bytes())
+    second = ingest(
+        store, "Synthetic", ["FY25"], provider=Refuses(), manual=True, max_bytes=limit, **paths
+    )
+    assert second["filings"][0]["status"] == "needs_manual_pdf"
+    assert "size limit" in second["filings"][0]["inbox_error"]
+    assert saved.exists()
+
+    third = ingest(store, "Synthetic", ["FY25"], provider=Refuses(), manual=True, **paths)
+    assert third["filings"][0]["status"] == "review_required"
+    assert "inbox_error" not in third["filings"][0]
+    assert not saved.exists()
