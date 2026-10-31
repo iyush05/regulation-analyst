@@ -1,14 +1,14 @@
-# Render blueprint for the backend API. Persistent disks need a paid instance type.
+# Render blueprint for the backend API, on the free instance type.
+# Free instances have no persistent disk: on every restart (including the spin-down after
+# 15 idle minutes) the database is re-seeded from the bundled corpus, and companies ingested
+# since are lost. For a lasting database, use plan: starter and add:
+#   disk: { name: data, mountPath: /data, sizeGB: 5 }
 services:
   - type: web
     name: regulation-analyst-api
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 5
     envVars:
       - key: REGULATION_API_TOKEN
         generateValue: true
