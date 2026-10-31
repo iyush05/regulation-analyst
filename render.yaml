@@ -1,7 +1,7 @@
 # Render blueprint for the backend API, on the free instance type.
 # Free instances have no persistent disk: on every restart (including the spin-down after
-# 15 idle minutes) the database is re-seeded from the bundled corpus, and companies ingested
-# since are lost. For a lasting database, use plan: starter and add:
+# 15 idle minutes) the database is re-seeded from deploy/seed.sqlite3, and companies ingested
+# on the server since are lost. Refresh the seed with scripts/snapshot_seed.py and push. For a lasting database, use plan: starter and add:
 #   disk: { name: data, mountPath: /data, sizeGB: 5 }
 services:
   - type: web

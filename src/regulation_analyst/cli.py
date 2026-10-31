@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shutil
 import sys
 from datetime import date
 from importlib.resources import files
@@ -19,6 +20,22 @@ from .store import Store
 # fully, plus one of each failure the rules show (a wrong pick, a continuation page, and a
 # side-by-side layout).
 MODEL_BENCHMARK_REPORTS = ["infosys", "sunpharma", "hcltech", "airtel"]
+
+
+def prepare_database(database: Path, seed: str | None) -> str:
+    """A fresh deployment starts from a database snapshot when one is configured, otherwise
+    from the bundled, source-checked corpus. An existing database is never replaced."""
+    if database.is_file():
+        return "existing"
+    database.parent.mkdir(parents=True, exist_ok=True)
+    if seed and Path(seed).is_file():
+        shutil.copyfile(seed, database)
+        return "seed"
+    store = Store(database, readonly=False)
+    for fixture in ("demo.json", "research-expansion.json"):
+        path = files("regulation_analyst").joinpath(f"fixtures/{fixture}")
+        store.import_bundle(Bundle.model_validate_json(path.read_text()))
+    return "fixtures"
 
 
 def parser():
@@ -540,12 +557,7 @@ def main(argv=None) -> int:
                 args.openapi.write_text(json.dumps(create_app(settings).openapi(), indent=2) + "\n")
                 print(json.dumps({"status": "ok", "openapi": str(args.openapi)}))
                 return 0
-            if not Path(args.db).is_file():
-                # A fresh deployment starts with the bundled, source-checked corpus.
-                store = Store(args.db, readonly=False)
-                for fixture in ("demo.json", "research-expansion.json"):
-                    path = files("regulation_analyst").joinpath(f"fixtures/{fixture}")
-                    store.import_bundle(Bundle.model_validate_json(path.read_text()))
+            prepare_database(Path(args.db), os.environ.get("REGULATION_SEED_DB"))
             import uvicorn
 
             uvicorn.run(create_app(settings), host=args.host, port=args.port, log_level="info")

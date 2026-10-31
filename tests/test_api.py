@@ -46,7 +46,7 @@ def api(tmp_path, store):
         client.headers["Authorization"] = f"Bearer {TOKEN}"
         return client
 
-    build.refused, build.pdf = refused, pdf
+    build.refused, build.pdf, build.root = refused, pdf, tmp_path
     return build
 
 
@@ -129,6 +129,9 @@ def test_refused_download_resumes_from_an_upload_and_pages_render(api):
     assert image.content.startswith(b"\x89PNG")
     reviewed = client.get("/api/sources/ev-infosys-indas-2025-revenue/page.png")
     assert reviewed.status_code == 404  # Remote reference only; no archived copy.
+    for pdf in api.root.rglob("*.pdf"):  # A server seeded from a snapshot has no PDFs.
+        pdf.unlink()
+    assert client.get(f"/api/sources/{evidence_id}/page.png").status_code == 404
 
 
 def test_agent_runs_as_a_job_and_needs_a_configured_model(api, store):
@@ -149,3 +152,22 @@ def test_agent_runs_as_a_job_and_needs_a_configured_model(api, store):
     assert "₹1,62,990 cr" in finished["result"]["data"]["answer"]
     labels = [step["label"] for step in finished["progress"] if step["kind"] == "tool"]
     assert labels == ["Fetching revenue for Infosys FY25", "Writing the answer"]
+
+
+def test_a_fresh_deployment_starts_from_the_seed_snapshot(tmp_path, store):
+    import sqlite3
+
+    from regulation_analyst.cli import prepare_database
+    from regulation_analyst.store import Store
+
+    seed = tmp_path / "seed.sqlite3"
+    with sqlite3.connect(store.path) as connection:
+        connection.execute("VACUUM INTO ?", (str(seed),))
+    seeded = tmp_path / "data" / "research.sqlite3"
+    assert prepare_database(seeded, str(seed)) == "seed"
+    assert Store(seeded).version == store.version
+    # An existing database, with whatever was ingested since, is never replaced.
+    assert prepare_database(seeded, str(seed)) == "existing"
+    fresh = tmp_path / "other" / "research.sqlite3"
+    assert prepare_database(fresh, str(tmp_path / "missing.sqlite3")) == "fixtures"
+    assert {c.id for c in Store(fresh).records("companies")} >= {"infosys", "tcs", "hcltech"}

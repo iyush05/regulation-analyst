@@ -6,12 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     REGULATION_DATA_DIR=/data \
-    REGULATION_ARTIFACTS_DIR=/data/artifacts
+    REGULATION_ARTIFACTS_DIR=/data/artifacts \
+    REGULATION_SEED_DB=/app/seed.sqlite3
 
 WORKDIR /app
 COPY requirements-dev.lock pyproject.toml README.md ./
 RUN pip install -r requirements-dev.lock
 COPY src ./src
+# Database snapshot copied into /data on first start (scripts/snapshot_seed.py refreshes it).
+COPY deploy/seed.sqlite3 /app/seed.sqlite3
 RUN pip install --no-deps . && useradd --create-home analyst && mkdir /data && chown analyst /data
 
 USER analyst

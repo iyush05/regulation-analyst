@@ -228,7 +228,12 @@ def create_app(settings: Settings, *, provider_factory=model_provider, client=No
             document = store.record("documents", evidence.document_id)
         except ResearchError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if not document.snapshot_path or not evidence.pdf_page:
+        # A deployment seeded from a database snapshot carries no PDFs.
+        if (
+            not document.snapshot_path
+            or not evidence.pdf_page
+            or not Path(document.snapshot_path).is_file()
+        ):
             raise HTTPException(404, "No archived copy of this source page")
         with pymupdf.open(document.snapshot_path) as pdf:
             page = pdf[evidence.pdf_page - 1]
