@@ -617,7 +617,7 @@ def cross_check(rules: dict, model: dict) -> dict:
             candidates.append({**candidate, "bundle": {**candidate["bundle"], "facts": facts}})
             extractions.append(extraction)
     agreement = {"agreed": 0, "disagreed": [], "rules_only": 0, "model_only": 0}
-    for key in first.keys() | second.keys():
+    for key in sorted(first.keys() | second.keys()):  # A stable report order.
         if key not in second:
             agreement["rules_only"] += 1
         elif key not in first:

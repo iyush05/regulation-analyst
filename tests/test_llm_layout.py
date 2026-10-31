@@ -306,8 +306,9 @@ def test_cross_queues_a_figure_the_two_readings_disagree_on(tmp_path):
         provider=Misreader(),
         layout="cross",
     )
-    (disagreed, *_) = result["report"]["agreement"]["disagreed"]
-    assert disagreed["metric"] == "tax_expense"
+    disagreements = result["report"]["agreement"]["disagreed"]
+    assert {d["metric"] for d in disagreements} == {"tax_expense"}
+    disagreed = next(d for d in disagreements if d["fiscal_year"] == 2025)
     assert (disagreed["rules"], disagreed["model"]) == ("9,500", "3,600")
     accepted, queued = gated(result)
     assert ("tax_expense", 2025) not in accepted
