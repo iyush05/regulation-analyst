@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -20,7 +21,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from . import __version__
 from .errors import ResearchError
@@ -32,12 +33,35 @@ MAX_UPLOAD_BYTES = 200_000_000
 
 
 class Settings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     database: Path
     token: str = Field(min_length=16)
     cors_origins: list[str] = Field(default_factory=list)
     data_dir: Path = Path("data")
     artifacts_dir: Path = Path("artifacts")
+    mcp_tokens: dict[str, SecretStr] = Field(default_factory=dict)
+    mcp_allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost:*", "127.0.0.1:*", "[::1]:*"]
+    )
+    mcp_allowed_origins: list[str] = Field(default_factory=list)
+    mcp_requests_per_minute: int = Field(default=120, ge=1, le=10000)
+
+    @model_validator(mode="after")
+    def validate_mcp_credentials(self):
+        seen = set()
+        for name, secret in self.mcp_tokens.items():
+            value = secret.get_secret_value()
+            if (
+                not name.strip()
+                or len(value) < 32
+                or not value.isascii()
+                or any(char.isspace() for char in value)
+            ):
+                raise ValueError("MCP credentials need a label and 32+ non-whitespace ASCII chars")
+            if value == self.token or value in seen:
+                raise ValueError("MCP credentials must be unique and distinct from the API token")
+            seen.add(value)
+        return self
 
     @property
     def paths(self) -> dict:
@@ -146,11 +170,51 @@ def model_provider():
 
 def create_app(settings: Settings, *, provider_factory=model_provider, client=None) -> FastAPI:
     """`provider_factory` and `client` let tests replace the model and HTTP downloads."""
+    mcp_server = None
+    mcp_app = None
+    if settings.mcp_tokens:
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        from .mcp_server import create_server
+
+        mcp_server = create_server(
+            settings.database,
+            stateless_http=True,
+            transport_security=TransportSecuritySettings(
+                allowed_hosts=settings.mcp_allowed_hosts,
+                allowed_origins=settings.mcp_allowed_origins,
+            ),
+        )
+        mcp_app = mcp_server.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        if mcp_server is None:
+            yield
+        else:
+            # Mounted ASGI apps do not automatically receive lifespan events.
+            async with mcp_server.session_manager.run():
+                yield
+
     app = FastAPI(
         title="Regulation Analyst API",
         version=__version__,
         description="Source-backed research on Indian company financials.",
+        lifespan=lifespan,
     )
+    if mcp_app is not None:
+        from .http_mcp import ResearchAccess
+
+        app.mount(
+            "/mcp",
+            ResearchAccess(
+                mcp_app,
+                tokens={
+                    name: token.get_secret_value() for name, token in settings.mcp_tokens.items()
+                },
+                requests_per_minute=settings.mcp_requests_per_minute,
+            ),
+        )
     if settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,

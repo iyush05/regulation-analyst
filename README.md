@@ -178,12 +178,17 @@ if `web/openapi.json` is stale.
 ### Deploy
 
 - **Backend (Render):** create a Blueprint from [`render.yaml`](render.yaml). It builds the
-  [`Dockerfile`](Dockerfile) and mounts a persistent disk at `/data` for the database, archived
-  PDFs, and run logs (persistent disks need a paid instance). Set `OPENAI_API_KEY` and
+  [`Dockerfile`](Dockerfile). The checked-in free plan uses ephemeral storage and re-seeds
+  the database on restart; attach a persistent disk at `/data` on a paid instance to retain
+  new data, archived PDFs, and run logs. Set `OPENAI_API_KEY` and
   `REGULATION_CORS_ORIGINS` (the frontend's URL); copy the generated `REGULATION_API_TOKEN`.
   A fresh disk starts with the bundled corpus.
 - **Frontend (Vercel):** import the repository with root directory `web` and set
   `VITE_API_URL` to the backend URL. [`web/vercel.json`](web/vercel.json) configures the build.
+
+The same backend can serve an authenticated, read-only MCP endpoint at `/mcp/` for the
+Agensi skill. It is disabled until separate research credentials are configured. See
+[Agensi setup](docs/AGENSI_SETUP.md) for deployment, access limits and the upload package.
 
 ## Acquire, extract, map, review
 

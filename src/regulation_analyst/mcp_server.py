@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from .models import Basis, Policy, Result, Scope, Trust
@@ -11,7 +12,14 @@ from .service import ResearchService
 from .store import Store
 
 
-def create_server(database: str | Path, *, retriever=None, ingestor=None) -> FastMCP:
+def create_server(
+    database: str | Path,
+    *,
+    retriever=None,
+    ingestor=None,
+    stateless_http: bool = False,
+    transport_security: TransportSecuritySettings | None = None,
+) -> FastMCP:
     service = ResearchService(Store(database, readonly=True), retriever=retriever)
     server = FastMCP(
         "Regulation Analyst",
@@ -26,6 +34,10 @@ def create_server(database: str | Path, *, retriever=None, ingestor=None) -> Fas
             "external client prose is outside its validation guarantee."
         ),
         log_level="WARNING",
+        stateless_http=stateless_http,
+        json_response=stateless_http,
+        streamable_http_path="/" if stateless_http else "/mcp",
+        transport_security=transport_security,
     )
     annotations = ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False

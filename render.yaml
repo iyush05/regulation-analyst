@@ -18,3 +18,7 @@ services:
         value: gpt-4.1
       - key: REGULATION_CORS_ORIGINS
         sync: false
+      # Configure REGULATION_MCP_TOKENS manually in the Render dashboard to enable /mcp/.
+      # Keep it separate from REGULATION_API_TOKEN. See docs/AGENSI_SETUP.md.
+      - key: REGULATION_MCP_REQUESTS_PER_MINUTE
+        value: "120"

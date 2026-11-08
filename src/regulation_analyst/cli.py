@@ -545,12 +545,30 @@ def main(argv=None) -> int:
             from .api import Settings, create_app
 
             origins = os.environ.get("REGULATION_CORS_ORIGINS", "")
+            try:
+                mcp_tokens = json.loads(os.environ.get("REGULATION_MCP_TOKENS", "{}"))
+            except ValueError:
+                raise ValueError("REGULATION_MCP_TOKENS must be a JSON object") from None
+            mcp_hosts = os.environ.get(
+                "REGULATION_MCP_ALLOWED_HOSTS",
+                os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost:*,127.0.0.1:*,[::1]:*"),
+            )
             settings = Settings(
                 database=Path(args.db),
                 token=os.environ.get("REGULATION_API_TOKEN", "x" * 16 if args.openapi else ""),
                 cors_origins=[o.strip() for o in origins.split(",") if o.strip()],
                 data_dir=Path(os.environ.get("REGULATION_DATA_DIR", "data")),
                 artifacts_dir=Path(os.environ.get("REGULATION_ARTIFACTS_DIR", "artifacts")),
+                mcp_tokens={} if args.openapi else mcp_tokens,
+                mcp_allowed_hosts=[host.strip() for host in mcp_hosts.split(",") if host.strip()],
+                mcp_allowed_origins=[
+                    origin.strip()
+                    for origin in os.environ.get("REGULATION_MCP_ALLOWED_ORIGINS", "").split(",")
+                    if origin.strip()
+                ],
+                mcp_requests_per_minute=int(
+                    os.environ.get("REGULATION_MCP_REQUESTS_PER_MINUTE", "120")
+                ),
             )
             if args.openapi:
                 args.openapi.parent.mkdir(parents=True, exist_ok=True)
